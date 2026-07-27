@@ -31,12 +31,12 @@ Web-app layout per plan.md: `src/SprintSync.Api/`, `src/SprintSync.AppHost/`,
 
 **Purpose**: Solution, projects, and Aspire topology scaffolding.
 
-- [ ] T001 Create `SprintSync.sln` and the `src/`, `web/`, `tests/` folder structure per plan.md
-- [ ] T002 Create Aspire AppHost `src/SprintSync.AppHost/` declaring exactly three resources — Azure SQL database, the API project, and the React npm app (topology source of truth; no Redis/broker)
-- [ ] T003 [P] Create `src/SprintSync.ServiceDefaults/` (Aspire telemetry/health/resilience defaults)
-- [ ] T004 Create ASP.NET Core Minimal API project `src/SprintSync.Api/` (.NET 10) wired to ServiceDefaults
+- [x] T001 Create `SprintSync.sln` and the `src/`, `web/`, `tests/` folder structure per plan.md
+- [x] T002 Create Aspire AppHost `src/SprintSync.AppHost/` declaring exactly three resources — Azure SQL database, the API project, and the React npm app (topology source of truth; no Redis/broker)
+- [x] T003 [P] Create `src/SprintSync.ServiceDefaults/` (Aspire telemetry/health/resilience defaults)
+- [x] T004 Create ASP.NET Core Minimal API project `src/SprintSync.Api/` (.NET 10) wired to ServiceDefaults
 - [ ] T005 [P] Scaffold React + TypeScript + Vite app in `web/sprint-sync-web/`
-- [ ] T006 [P] Create xUnit test project `tests/SprintSync.Api.Tests/` referencing `SprintSync.Api`
+- [x] T006 [P] Create xUnit test project `tests/SprintSync.Api.Tests/` referencing `SprintSync.Api`
 - [ ] T007 [P] Configure formatting/analyzers (`.editorconfig`, `dotnet format`, ESLint/Prettier for web)
 
 ---
@@ -48,19 +48,19 @@ context, policy, contract conventions, and the test harness.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T008 [P] Define entities `User`, `Organization`, `Membership`, `OrgRole` enum, and `TenantScopedEntity` base in `src/SprintSync.Api/Data/Entities/` per data-model.md
-- [ ] T009 Implement `AppDbContext` in `src/SprintSync.Api/Data/AppDbContext.cs` — DbSets, relationships, unique indexes (`User.ExternalId`, `Membership(UserId,OrganizationId)`), and the global query filter on `TenantScopedEntity` keyed to `ITenantContext` (research R2)
-- [ ] T010 Register the DbContext with `AddDbContext` (scoped, **NOT** pooled) and the Azure SQL provider; bind the connection from Aspire (research R2)
-- [ ] T011 Create the initial EF Core migration (`InitialCreate`) in `src/SprintSync.Api/Data/Migrations/` and apply migrations on startup
-- [ ] T012 [P] Define `ITenantContext` + scoped implementation in `src/SprintSync.Api/Tenancy/TenantContext.cs`
-- [ ] T013 Implement user-resolution + JIT provisioning middleware in `src/SprintSync.Api/Auth/UserProvisioningMiddleware.cs` (resolve `User` by `oid` claim; create if absent — FR-013)
-- [ ] T014 Implement tenant-resolution middleware in `src/SprintSync.Api/Tenancy/TenantResolutionMiddleware.cs` — resolve requested org from `X-Organization-Id`/persisted active org, **verify Membership**, set `ITenantContext`; if the persisted active org is stale/invalid, re-resolve to another of the user's memberships or the empty state and never use the stale value (FR-014); this is the **only** `IgnoreQueryFilters` path (research R1, R3; Principle VI)
-- [ ] T015 [P] Configure Entra External ID JWT bearer auth (Microsoft.Identity.Web) in `src/SprintSync.Api/Auth/AuthenticationSetup.cs` (Principle VII)
-- [ ] T016 [P] Implement the `OrgMember` authorization requirement + handler + policy in `src/SprintSync.Api/Auth/OrgMemberPolicy.cs` (Principle VIII; no inline role strings)
-- [ ] T017 [P] Configure `ProblemDetails` (RFC 9457) + global exception handler in `src/SprintSync.Api/ProblemDetailsSetup.cs` (Principle III)
-- [ ] T018 [P] Configure API versioning (Asp.Versioning) under `/api/v1` and OpenAPI (Microsoft.AspNetCore.OpenApi) served at `/openapi/v1.json` (Principles II, III)
-- [ ] T019 [P] Define the shared pagination envelope `PagedResult<T>` + paging-parameter binding in `src/SprintSync.Api/Contracts/PagedResult.cs` (Principle III)
-- [ ] T020 Build the integration-test harness in `tests/SprintSync.Api.Tests/Infrastructure/` — `WebApplicationFactory`, a test authentication handler injecting a configurable external id, and a Testcontainers SQL Server fixture that applies real migrations (research R9)
+- [x] T008 [P] Define entities `User`, `Organization`, `Membership`, `OrgRole` enum, and `TenantScopedEntity` base in `src/SprintSync.Api/Data/Entities/` per data-model.md
+- [x] T009 Implement `AppDbContext` in `src/SprintSync.Api/Data/AppDbContext.cs` — DbSets, relationships, unique indexes (`User.ExternalId`, `Membership(UserId,OrganizationId)`), and the global query filter on `TenantScopedEntity` keyed to `ITenantContext` (research R2)
+- [x] T010 Register the DbContext with `AddDbContext` (scoped, **NOT** pooled) and the Azure SQL provider; bind the connection from Aspire (research R2)
+- [x] T011 Create the initial EF Core migration (`InitialCreate`) in `src/SprintSync.Api/Data/Migrations/` and apply migrations on startup
+- [x] T012 [P] Define `ITenantContext` + scoped implementation in `src/SprintSync.Api/Tenancy/TenantContext.cs`
+- [x] T013 Implement user-resolution + JIT provisioning middleware in `src/SprintSync.Api/Auth/UserProvisioningMiddleware.cs` (resolve `User` by `oid` claim; create if absent — FR-013)
+- [x] T014 Implement tenant-resolution middleware in `src/SprintSync.Api/Tenancy/TenantResolutionMiddleware.cs` — resolve requested org from `X-Organization-Id`/persisted active org, **verify Membership**, set `ITenantContext`; if the persisted active org is stale/invalid, re-resolve to another of the user's memberships or the empty state and never use the stale value (FR-014); this is the **only** `IgnoreQueryFilters` path (research R1, R3; Principle VI)
+- [x] T015 [P] Configure Entra External ID JWT bearer auth (Microsoft.Identity.Web) in `src/SprintSync.Api/Auth/AuthenticationSetup.cs` (Principle VII)
+- [x] T016 [P] Implement the `OrgMember` authorization requirement + handler + policy in `src/SprintSync.Api/Auth/OrgMemberPolicy.cs` (Principle VIII; no inline role strings)
+- [x] T017 [P] Configure `ProblemDetails` (RFC 9457) + global exception handler in `src/SprintSync.Api/ProblemDetailsSetup.cs` (Principle III)
+- [x] T018 [P] Configure API versioning (Asp.Versioning) under `/api/v1` and OpenAPI (Microsoft.AspNetCore.OpenApi) served at `/openapi/v1.json` (Principles II, III)
+- [x] T019 [P] Define the shared pagination envelope `PagedResult<T>` + paging-parameter binding in `src/SprintSync.Api/Contracts/PagedResult.cs` (Principle III)
+- [x] T020 Build the integration-test harness in `tests/SprintSync.Api.Tests/Infrastructure/` — `WebApplicationFactory`, a test authentication handler injecting a configurable external id, and a Testcontainers SQL Server fixture that applies real migrations (research R9)
 
 **Checkpoint**: Spine ready — user stories can now proceed.
 
@@ -76,16 +76,16 @@ confirm 201 with `role: Owner` and that `GET /me` shows it as the active org.
 
 ### Tests (write first, must fail)
 
-- [ ] T021 [P] [US1] Integration test: `POST /api/v1/organizations` creates org + Owner membership, appears in list; whitespace name → 400 — in `tests/SprintSync.Api.Tests/Organizations/CreateOrganizationTests.cs`
-- [ ] T022 [P] [US1] Integration test: `GET /api/v1/me` JIT-provisions a new user and returns `activeOrganizationId: null` (empty state) — in `tests/SprintSync.Api.Tests/Me/MeEndpointTests.cs`
+- [x] T021 [P] [US1] Integration test: `POST /api/v1/organizations` creates org + Owner membership, appears in list; whitespace name → 400 — in `tests/SprintSync.Api.Tests/Organizations/CreateOrganizationTests.cs`
+- [x] T022 [P] [US1] Integration test: `GET /api/v1/me` JIT-provisions a new user and returns `activeOrganizationId: null` (empty state) — in `tests/SprintSync.Api.Tests/Me/MeEndpointTests.cs`
 
 ### Implementation
 
-- [ ] T023 [P] [US1] `CreateOrganizationRequest` + `OrganizationSummary` DTOs in `src/SprintSync.Api/Contracts/`
-- [ ] T024 [P] [US1] `MeResponse` DTO in `src/SprintSync.Api/Contracts/MeResponse.cs`
-- [ ] T025 [US1] Implement `POST /api/v1/organizations` in `src/SprintSync.Api/Features/Organizations/CreateOrganization.cs` — single transaction inserts `Organization` (CreatedByUserId = caller) + `Membership(caller, org, Owner)`; sets active org if caller had none (FR-001/002/003, FR-014)
-- [ ] T026 [US1] Implement `GET /api/v1/me` in `src/SprintSync.Api/Features/Me/GetMe.cs` — returns the resolved active org, applying the stale-active-org fallback (FR-014)
-- [ ] T027 [US1] Add name validation (trim, non-empty, ≤100) returning 400 `ProblemDetails` (FR-012)
+- [x] T023 [P] [US1] `CreateOrganizationRequest` + `OrganizationSummary` DTOs in `src/SprintSync.Api/Contracts/`
+- [x] T024 [P] [US1] `MeResponse` DTO in `src/SprintSync.Api/Contracts/MeResponse.cs`
+- [x] T025 [US1] Implement `POST /api/v1/organizations` in `src/SprintSync.Api/Features/Organizations/CreateOrganization.cs` — single transaction inserts `Organization` (CreatedByUserId = caller) + `Membership(caller, org, Owner)`; sets active org if caller had none (FR-001/002/003, FR-014)
+- [x] T026 [US1] Implement `GET /api/v1/me` in `src/SprintSync.Api/Features/Me/GetMe.cs` — returns the resolved active org, applying the stale-active-org fallback (FR-014)
+- [x] T027 [US1] Add name validation (trim, non-empty, ≤100) returning 400 `ProblemDetails` (FR-012)
 
 **Checkpoint**: US1 fully functional and independently testable — this is the MVP.
 

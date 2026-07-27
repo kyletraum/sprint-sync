@@ -54,7 +54,7 @@ context, policy, contract conventions, and the test harness.
 - [ ] T011 Create the initial EF Core migration (`InitialCreate`) in `src/SprintSync.Api/Data/Migrations/` and apply migrations on startup
 - [ ] T012 [P] Define `ITenantContext` + scoped implementation in `src/SprintSync.Api/Tenancy/TenantContext.cs`
 - [ ] T013 Implement user-resolution + JIT provisioning middleware in `src/SprintSync.Api/Auth/UserProvisioningMiddleware.cs` (resolve `User` by `oid` claim; create if absent — FR-013)
-- [ ] T014 Implement tenant-resolution middleware in `src/SprintSync.Api/Tenancy/TenantResolutionMiddleware.cs` — resolve requested org from `X-Organization-Id`/persisted active org, **verify Membership**, set `ITenantContext`; this is the **only** `IgnoreQueryFilters` path (research R1, R3; Principle VI)
+- [ ] T014 Implement tenant-resolution middleware in `src/SprintSync.Api/Tenancy/TenantResolutionMiddleware.cs` — resolve requested org from `X-Organization-Id`/persisted active org, **verify Membership**, set `ITenantContext`; if the persisted active org is stale/invalid, re-resolve to another of the user's memberships or the empty state and never use the stale value (FR-014); this is the **only** `IgnoreQueryFilters` path (research R1, R3; Principle VI)
 - [ ] T015 [P] Configure Entra External ID JWT bearer auth (Microsoft.Identity.Web) in `src/SprintSync.Api/Auth/AuthenticationSetup.cs` (Principle VII)
 - [ ] T016 [P] Implement the `OrgMember` authorization requirement + handler + policy in `src/SprintSync.Api/Auth/OrgMemberPolicy.cs` (Principle VIII; no inline role strings)
 - [ ] T017 [P] Configure `ProblemDetails` (RFC 9457) + global exception handler in `src/SprintSync.Api/ProblemDetailsSetup.cs` (Principle III)
@@ -84,7 +84,7 @@ confirm 201 with `role: Owner` and that `GET /me` shows it as the active org.
 - [ ] T023 [P] [US1] `CreateOrganizationRequest` + `OrganizationSummary` DTOs in `src/SprintSync.Api/Contracts/`
 - [ ] T024 [P] [US1] `MeResponse` DTO in `src/SprintSync.Api/Contracts/MeResponse.cs`
 - [ ] T025 [US1] Implement `POST /api/v1/organizations` in `src/SprintSync.Api/Features/Organizations/CreateOrganization.cs` — single transaction inserts `Organization` (CreatedByUserId = caller) + `Membership(caller, org, Owner)`; sets active org if caller had none (FR-001/002/003, FR-014)
-- [ ] T026 [US1] Implement `GET /api/v1/me` in `src/SprintSync.Api/Features/Me/GetMe.cs`
+- [ ] T026 [US1] Implement `GET /api/v1/me` in `src/SprintSync.Api/Features/Me/GetMe.cs` — returns the resolved active org, applying the stale-active-org fallback (FR-014)
 - [ ] T027 [US1] Add name validation (trim, non-empty, ≤100) returning 400 `ProblemDetails` (FR-012)
 
 **Checkpoint**: US1 fully functional and independently testable — this is the MVP.
@@ -126,8 +126,8 @@ confirm 201 with `role: Owner` and that `GET /me` shows it as the active org.
 ### Implementation
 
 - [ ] T032 [P] [US4] `OrganizationDetail` DTO in `src/SprintSync.Api/Contracts/OrganizationDetail.cs`
-- [ ] T033 [US4] Implement `GET /api/v1/organizations/{organizationId}` in `src/SprintSync.Api/Features/Organizations/GetOrganization.cs` — membership-gated via the `OrgMember` policy; non-member/unknown both return the identical 404 (FR-008/009, hide-existence)
-- [ ] T034 [US4] Ensure not-found vs non-member responses are identical in status, `ProblemDetails` body, and branch shape (no existence/timing signal — research R4)
+- [ ] T033 [US4] Implement `GET /api/v1/organizations/{organizationId}` in `src/SprintSync.Api/Features/Organizations/GetOrganization.cs` — fetch via a **single uniform membership-gated query** (no separate "does org exist?" lookup, no existence-vs-membership branch, no extra round-trip); non-member and unknown ids both return byte-identical 404 + ProblemDetails (FR-008/009, hide-existence, research R4)
+- [ ] T034 [US4] Enforce timing-oracle resistance by construction: (a) implement a custom authorization result handler in `src/SprintSync.Api/Auth/HideExistenceAuthorizationResultHandler.cs` mapping `OrgMember` policy denials on hide-existence resources to 404 (never 403) with the uniform ProblemDetails (Principle VIII preserved); (b) add a timing-parity regression test in `tests/SprintSync.Api.Tests/Isolation/CrossTenantAccessTests.cs` asserting non-member vs unknown-id latency stays within a tolerance band over repeated samples (FR-009, research R4)
 
 **Checkpoint**: Isolation guarantee proven; US1 + US2 + US4 all pass.
 
@@ -143,7 +143,7 @@ switch to "Beta", confirm each switch takes effect on the next request.
 
 ### Tests (write first, must fail)
 
-- [ ] T035 [P] [US3] Integration test: `PUT /api/v1/me/active-organization` switches active org and persists it; non-member target → 404 with previous selection unchanged — in `tests/SprintSync.Api.Tests/Me/ActiveOrganizationTests.cs` (FR-006/007)
+- [ ] T035 [P] [US3] Integration test: `PUT /api/v1/me/active-organization` switches active org and persists it; non-member target → 404 with previous selection unchanged; **and** a stale/invalid persisted active org resolves to another valid org (or null empty state) on `GET /me`, never the stale one and never granting access — in `tests/SprintSync.Api.Tests/Me/ActiveOrganizationTests.cs` (FR-006/007/014)
 
 ### Implementation
 

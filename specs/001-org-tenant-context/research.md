@@ -17,6 +17,11 @@ the request. It is populated by an ordered pipeline, *after* authentication:
    that org. Only on success is `ITenantContext.OrganizationId` set to that
    (server-resolved, verified) value. A client-supplied id with no matching
    membership resolves to "no context" → org-scoped access returns 404.
+   **Stale-active-org fallback (FR-014)**: if the persisted `ActiveOrganizationId`
+   has no current membership (stale/invalid), it is never used as the ambient
+   tenant; on resume the active org is re-resolved to another organization the
+   user belongs to, or to the empty state (null) when they belong to none. A
+   stale stored value never grants access.
 
 **Rationale**: This puts Principle VI's "the ambient tenant is the server-
 resolved value, never the raw client value" into a single choke point. Endpoints
@@ -69,20 +74,39 @@ carves this out; we localize it so it cannot erode.
 `IgnoreQueryFilters` to read it (rejected — normalizes filter-bypassing and
 defeats the point).
 
-## R4. "Hide existence" access semantics (Principle III + spec Q2)
+## R4. "Hide existence" access semantics — timing-oracle resistant (spec FR-009, Q2)
 
 **Decision**: Any org-scoped access by a non-member returns **404 Not Found** with
-a `ProblemDetails` body identical to a genuinely nonexistent org. Setting the
-active organization to a non-member org also returns 404. No 403 is used for
-tenancy, because 403 confirms existence.
+a `ProblemDetails` body byte-identical to that of a genuinely nonexistent org.
+Setting the active organization to a non-member org also returns 404. 403 is
+never used for tenancy (403 confirms existence).
 
-**Rationale**: Prevents membership/existence enumeration by probing ids (spec
-FR-009, SC-002). Uniform ProblemDetails shape satisfies Principle III.
+FR-009's timing clause is met **by construction**, not by tolerance:
 
-**Note on timing**: FR-009 forbids a *timing* oracle too. At demo scale the
-membership check is a single indexed lookup whether or not the org exists, so
-the paths are naturally comparable; we avoid short-circuit branches that would
-skew timing. Not a hard constant-time guarantee — documented as demo-adequate.
+1. **Single uniform query.** Both "org does not exist" and "org exists but caller
+   is not a member" resolve through one membership-gated query
+   (`… WHERE o.Id = @id AND EXISTS (SELECT 1 FROM Memberships m WHERE
+   m.OrganizationId = o.Id AND m.UserId = @caller)`). The handler performs **no**
+   separate "does this org exist?" lookup — so there is no existence-vs-membership
+   branch and no extra round-trip to tell the cases apart: identical query,
+   identical empty result, identical 404 + ProblemDetails.
+2. **Authorization denials map to 404, not 403.** Where the `OrgMember` policy
+   (R6) guards a hide-existence resource, a custom authorization result handler
+   converts denial into the same 404/ProblemDetails. Authorization stays in the
+   one policy layer (Principle VIII) while never emitting a 403 that would confirm
+   existence.
+3. **Regression guard.** A timing-parity test (T034) asserts the non-member and
+   unknown-id cases stay within a tolerance band, catching any future change that
+   reintroduces a divergent path or round-trip.
+
+This closes the *algorithmic* timing oracle — the one an attacker can actually
+exploit at the API boundary. Microsecond-level constant-time against cache/JIT/GC
+jitter is not an app-layer property and is not the threat FR-009 targets; the
+uniform-path design removes every structural signal an attacker could use.
+
+**Rationale**: Prevents membership/existence enumeration by probing ids (FR-009,
+SC-002); uniform ProblemDetails satisfies Principle III; the 404 mapping preserves
+Principle VIII.
 
 ## R5. Authentication (Entra External ID) and JIT provisioning (Principle VII)
 
@@ -104,7 +128,10 @@ mandates Entra); syncing memberships as token claims (rejected — Principle VII
 resolved `ITenantContext`/membership. Org-scoped endpoints require the
 `OrgMember` policy; org creation and `me`/list endpoints require only an
 authenticated user. Roles are modeled (`OrgRole.Owner`) for future policies but
-this slice needs no Owner-only endpoint. No role strings compared inline.
+this slice needs no Owner-only endpoint. No role strings compared inline. For
+hide-existence resources, policy denials are mapped to **404** (not 403) via a
+custom authorization result handler, so authorization never confirms existence
+(R4).
 
 **Rationale**: Centralized, auditable authorization; extends cleanly when
 Admin/Member and team roles arrive.

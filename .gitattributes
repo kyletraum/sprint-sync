@@ -1,0 +1,12 @@
+# Normalize line endings: LF in the repo, native checkout by default.
+* text=auto
+
+# Force LF in the working tree where it matters cross-platform:
+#  - web/ is Prettier-checked on a Linux CI runner (must match on Windows too)
+#  - shell scripts must be LF (and executable) to run on Linux
+web/** text eol=lf
+*.sh text eol=lf
+
+# The shell guards/checks are executed on Linux (CI + azd hooks).
+scripts/*.sh text eol=lf
+.specify/scripts/bash/*.sh text eol=lf

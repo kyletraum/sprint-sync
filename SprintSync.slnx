@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SprintSync.Api/SprintSync.Api.csproj" />
+    <Project Path="src/SprintSync.AppHost/SprintSync.AppHost.csproj" />
+    <Project Path="src/SprintSync.ServiceDefaults/SprintSync.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SprintSync.Api.Tests/SprintSync.Api.Tests.csproj" />
+  </Folder>
+</Solution>

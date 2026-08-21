@@ -1,0 +1,28 @@
+<Project>
+
+  <!-- Solution-wide build policy. Analyzers on, warnings meaningful:
+       tenancy defects are the kind of bug a compiler can sometimes catch. -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!-- Full NuGet audit stays ON (fail on any NEW advisory). Only the single
+       accepted exception is suppressed, by its exact advisory id: NU1903 for
+       Microsoft.OpenApi 2.0.0, a TRANSITIVE dependency of
+       Microsoft.AspNetCore.OpenApi 10.x with no compatible patched 2.x yet.
+       Revisit when a fixed transitive ships (P1-4). -->
+  <ItemGroup>
+    <!-- Microsoft.OpenApi 2.0.0, transitive via Microsoft.AspNetCore.OpenApi 10.x. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-v5pm-xwqc-g5wc" />
+    <!-- SSH.NET, transitive via Testcontainers (test-only, not shipped); no patched
+         version yet. Surfaced precisely because full auditing is back on. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-q939-rpr3-3284" />
+  </ItemGroup>
+
+</Project>

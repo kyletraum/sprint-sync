@@ -55,3 +55,29 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Visual Studio / user-specific files
+.vs/
+*.user
+*.suo
+
+# NuGet
+packages/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Web (Node/Vite)
+node_modules/
+dist/
+build/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+.vite/
+
+# Stray per-AppHost infra dir azd may emit; canonical infra is at repo root /infra
+src/SprintSync.AppHost/infra/

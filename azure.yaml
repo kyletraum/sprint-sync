@@ -1,0 +1,52 @@
+# azd configuration. The Aspire AppHost owns the API + SQL topology and is the
+# ONLY azd service — azd forbids pairing an Aspire service with any sibling
+# service. The React app is therefore NOT an azd service here; it deploys to
+# Static Web Apps Free from CI (see .github/workflows), which also keeps the SPA
+# off the Azure Container Apps compute grant (Principle 12, research R8). (P1-4)
+name: sprint-sync
+
+services:
+  app:
+    language: dotnet
+    project: ./src/SprintSync.AppHost/SprintSync.AppHost.csproj
+    host: containerapp
+
+hooks:
+  # Cost backstop: refuse to provision if the synthesized infrastructure would
+  # bill while idle (Principle 12). See specs/001-org-tenant-context/quickstart.md.
+  preprovision:
+    posix:
+      shell: sh
+      # Config guard (real Entra values) then cost guard — fail fast before any
+      # resource is created (P1-4, P1-5/T045).
+      run: ./scripts/check-azuread-config.sh && ./scripts/check-idle-cost.sh
+      continueOnError: false
+    windows:
+      shell: pwsh
+      run: ./scripts/check-azuread-config.ps1 && ./scripts/check-idle-cost.ps1
+      continueOnError: false
+
+  # Runtime cost backstop: provision the $1 budget alert with the topology so the
+  # spend guard is never a forgotten manual step (P1-6). Skipped (not failed) when
+  # BUDGET_ALERT_EMAILS is unset: azd env set BUDGET_ALERT_EMAILS '["you@example.com"]'
+  postprovision:
+    posix:
+      shell: sh
+      continueOnError: true
+      run: |
+        if [ -n "$BUDGET_ALERT_EMAILS" ]; then
+          az deployment group create -g "$AZURE_RESOURCE_GROUP" \
+            -f infra/budget.bicep -p alertEmails="$BUDGET_ALERT_EMAILS"
+        else
+          echo "BUDGET_ALERT_EMAILS unset — skipping the cost backstop budget."
+        fi
+    windows:
+      shell: pwsh
+      continueOnError: true
+      run: |
+        if ($env:BUDGET_ALERT_EMAILS) {
+          az deployment group create -g $env:AZURE_RESOURCE_GROUP `
+            -f infra/budget.bicep -p alertEmails=$env:BUDGET_ALERT_EMAILS
+        } else {
+          Write-Host "BUDGET_ALERT_EMAILS unset — skipping the cost backstop budget."
+        }

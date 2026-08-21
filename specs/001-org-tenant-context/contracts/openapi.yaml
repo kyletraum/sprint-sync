@@ -1,0 +1,256 @@
+openapi: 3.1.0
+info:
+  title: Sprint Sync API
+  version: "1.0"
+  description: >
+    Public, versioned contract for Sprint Sync. This document covers the
+    Organization Onboarding & Tenant Context feature (001). The React web app and
+    any third-party client consume exactly these endpoints (Principle I). All
+    request/response bodies are explicit DTOs; EF entities are never serialized
+    (Principle II). Errors use RFC 9457 ProblemDetails (Principle III).
+servers:
+  - url: /api/v1
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Me
+    description: The authenticated user and their active organization.
+  - name: Organizations
+    description: Organization onboarding and membership.
+
+paths:
+  /me:
+    get:
+      tags: [Me]
+      operationId: getMe
+      summary: Get the current user and active organization.
+      description: >
+        Returns the authenticated user's profile and active organization.
+        Just-in-time provisions the local user on first call (FR-013). A brand-new
+        user has an empty membership set and a null activeOrganizationId (empty
+        state, FR-005 edge case).
+      responses:
+        "200":
+          description: Current user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /me/active-organization:
+    put:
+      tags: [Me]
+      operationId: setActiveOrganization
+      summary: Set the active organization.
+      description: >
+        Sets the caller's active organization (FR-006). The target MUST be an
+        organization the caller is a member of; otherwise a 404 is returned that
+        is indistinguishable from a nonexistent organization (FR-007, FR-009,
+        hide-existence). The previous selection is left unchanged on failure.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetActiveOrganizationRequest" }
+      responses:
+        "200":
+          description: Active organization updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeResponse" }
+        "400": { $ref: "#/components/responses/ValidationProblem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /organizations:
+    get:
+      tags: [Organizations]
+      operationId: listMyOrganizations
+      summary: List organizations the caller belongs to.
+      description: >
+        Returns exactly the organizations the caller is a member of and no others
+        (FR-005, SC-003). This is the sanctioned cross-organization read
+        (Principle V carve-out). Offset-paginated envelope (Principle III).
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: The caller's organizations (possibly empty).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PagedOrganizationSummary"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Organizations]
+      operationId: createOrganization
+      summary: Create a new organization.
+      description: >
+        Creates an organization and records the caller as its Owner (FR-001/002).
+        A newly created organization contains only its Owner (FR-003). If the
+        caller had no active organization, the new one becomes active (FR-014).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateOrganizationRequest" }
+      responses:
+        "201":
+          description: Organization created.
+          headers:
+            Location:
+              description: URL of the created organization.
+              schema: { type: string, format: uri }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrganizationSummary" }
+        "400": { $ref: "#/components/responses/ValidationProblem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /organizations/{organizationId}:
+    get:
+      tags: [Organizations]
+      operationId: getOrganization
+      summary: Get an organization the caller belongs to.
+      description: >
+        Returns the organization only if the caller is a member. For a non-member
+        — or a nonexistent organization — returns an identical 404 (FR-008/009,
+        SC-002, hide-existence). No response reveals whether the organization
+        exists.
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Organization detail (caller is a member).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrganizationDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Entra External ID (CIAM) access token (Principle VII).
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      description: 1-based page number. Values below 1 are coerced to 1, not rejected.
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: >
+        Items per page. Values below 1 are coerced to the default (50); values
+        above the maximum are clamped to 100. Out-of-range input is coerced, not
+        rejected.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid access token.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetails" }
+    NotFound:
+      description: >
+        The organization does not exist OR the caller is not a member — these are
+        deliberately indistinguishable (hide-existence).
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetails" }
+    ValidationProblem:
+      description: The request failed validation.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetails" }
+
+  schemas:
+    OrgRole:
+      type: string
+      enum: [Owner]
+      description: Organization role. Only Owner exists in this slice.
+
+    MeResponse:
+      type: object
+      required: [userId, activeOrganizationId]
+      properties:
+        userId: { type: string, format: uuid }
+        displayName: { type: string, nullable: true }
+        activeOrganizationId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null when the user belongs to no organization (empty state).
+
+    CreateOrganizationRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: >
+            Surrounding whitespace is trimmed first; the result must be meaningful
+            (not only whitespace or zero-width/format characters) and at most 100
+            UTF-16 code units — the length unit the server enforces (FR-012).
+
+    SetActiveOrganizationRequest:
+      type: object
+      required: [organizationId]
+      properties:
+        organizationId: { type: string, format: uuid }
+
+    OrganizationSummary:
+      type: object
+      required: [id, name, role]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/OrgRole" }
+
+    OrganizationDetail:
+      allOf:
+        - $ref: "#/components/schemas/OrganizationSummary"
+        - type: object
+          required: [memberCount, createdAt]
+          properties:
+            memberCount: { type: integer, minimum: 1 }
+            createdAt: { type: string, format: date-time }
+
+    PagedOrganizationSummary:
+      type: object
+      required: [items, page, pageSize, totalCount]
+      description: The one pagination envelope used by all list endpoints (Principle III).
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/OrganizationSummary" }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1 }
+        totalCount: { type: integer, minimum: 0 }
+
+    ProblemDetails:
+      type: object
+      description: RFC 9457 problem details.
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+      required: [title, status]

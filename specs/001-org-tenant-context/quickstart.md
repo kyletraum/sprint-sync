@@ -68,11 +68,47 @@ manual steps.
 ## Deploy (optional, always-on idle-optimized)
 
 ```bash
-azd infra synth      # inspect generated Bicep BEFORE provisioning
-#   confirm: api minReplicas = 0; SQL free serverless + AutoPause;
-#   NO Microsoft.Cache/redis, NO dedicated workloadProfiles
+azd infra synth      # generate the Bicep BEFORE provisioning
+./scripts/check-idle-cost.sh          # or: pwsh ./scripts/check-idle-cost.ps1
 azd up               # provision API+SQL (ACA/Azure SQL) and the SWA-hosted React app
 ```
 
-Idle cost target ≈ $0 (scale-to-zero + SQL auto-pause + SWA Free); only the
-container registry stands. Keep the $1 budget alert as a backstop (Principle 12).
+### The pre-deploy cost guard (T045, Principle 12)
+
+`scripts/check-idle-cost.{sh,ps1}` is the mechanical form of "nothing idles
+billably". It reads the synthesized Bicep and fails the deploy if:
+
+- any Container App has `minReplicas` > 0,
+- the SQL database is not on the free serverless offer (`useFreeLimit: true`)
+  with `freeLimitExhaustionBehavior: 'AutoPause'`,
+- an always-on resource type appears (Redis, Service Bus, Cosmos, PostgreSQL
+  flexible server, AKS), or
+- a non-Consumption ACA workload profile is used.
+
+It is wired into `azure.yaml` as an `azd` **preprovision hook**, so it runs on
+every `azd up` whether or not anyone remembers to run it by hand. Both scripts
+take an optional path argument (default `./infra`).
+
+### Cost backstop
+
+```bash
+az deployment group create -g <rg> -f infra/budget.bicep   -p alertEmails='["you@example.com"]'
+```
+
+A $1 monthly budget alerting at 50% actual, 100% actual and 100% forecast. The
+$1 is not an allowance — at this design's idle cost, crossing 50 cents already
+means something unexpected is running.
+
+### Known issue: `azd infra synth` and the Container Apps environment
+
+On **Aspire 13.4.6**, `builder.AddAzureContainerAppEnvironment(...)` registers a
+second deployment target for the API on top of the one the SDK infers, and synth
+fails with `Sequence contains more than one matching element` before it emits the
+container-app Bicep. The SQL module still generates correctly, and its free-limit
+and auto-pause settings have been verified in the generated output.
+
+**Before the first deploy**, confirm `minReplicas: 0` reaches the synthesized
+container app — the cost guard checks it, but only once synth produces the file.
+
+Idle cost target is approximately $0 (scale-to-zero + SQL auto-pause + SWA Free);
+only the container registry stands.

@@ -35,9 +35,9 @@ Web-app layout per plan.md: `src/SprintSync.Api/`, `src/SprintSync.AppHost/`,
 - [x] T002 Create Aspire AppHost `src/SprintSync.AppHost/` declaring exactly three resources — Azure SQL database, the API project, and the React npm app (topology source of truth; no Redis/broker)
 - [x] T003 [P] Create `src/SprintSync.ServiceDefaults/` (Aspire telemetry/health/resilience defaults)
 - [x] T004 Create ASP.NET Core Minimal API project `src/SprintSync.Api/` (.NET 10) wired to ServiceDefaults
-- [ ] T005 [P] Scaffold React + TypeScript + Vite app in `web/sprint-sync-web/`
+- [x] T005 [P] Scaffold React + TypeScript + Vite app in `web/sprint-sync-web/`
 - [x] T006 [P] Create xUnit test project `tests/SprintSync.Api.Tests/` referencing `SprintSync.Api`
-- [ ] T007 [P] Configure formatting/analyzers (`.editorconfig`, `dotnet format`, ESLint/Prettier for web)
+- [x] T007 [P] Configure formatting/analyzers (`.editorconfig`, `dotnet format`, ESLint/Prettier for web)
 
 ---
 
@@ -100,11 +100,11 @@ confirm 201 with `role: Owner` and that `GET /me` shows it as the active org.
 
 ### Tests (write first, must fail)
 
-- [ ] T028 [P] [US2] Integration test: `GET /api/v1/organizations` returns exactly the caller's orgs, excludes non-member orgs, empty list for a new user, correct pagination envelope — in `tests/SprintSync.Api.Tests/Organizations/ListOrganizationsTests.cs` (SC-003)
+- [x] T028 [P] [US2] Integration test: `GET /api/v1/organizations` returns exactly the caller's orgs, excludes non-member orgs, empty list for a new user, correct pagination envelope — in `tests/SprintSync.Api.Tests/Organizations/ListOrganizationsTests.cs` (SC-003)
 
 ### Implementation
 
-- [ ] T029 [US2] Implement `GET /api/v1/organizations` (paged, membership-scoped — the sanctioned cross-org read) in `src/SprintSync.Api/Features/Organizations/ListOrganizations.cs` (FR-005, Principle V carve-out)
+- [x] T029 [US2] Implement `GET /api/v1/organizations` (paged, membership-scoped — the sanctioned cross-org read) in `src/SprintSync.Api/Features/Organizations/ListOrganizations.cs` (FR-005, Principle V carve-out)
 
 **Checkpoint**: US1 + US2 both work independently.
 
@@ -120,16 +120,21 @@ confirm 201 with `role: Owner` and that `GET /me` shows it as the active org.
 
 ### Tests (write first, must fail)
 
-- [ ] T030 [P] [US4] Cross-tenant attack integration tests in `tests/SprintSync.Api.Tests/Isolation/CrossTenantAccessTests.cs` — non-member `GET /organizations/{id}` → 404 indistinguishable from an unknown id; `PUT /me/active-organization` to a non-member org → 404 (unchanged); `X-Organization-Id` spoof ignored (context from verified membership); stale membership → next access denied (FR-007/008/009/010, SC-002)
-- [ ] T031 [P] [US4] Query-filter mechanism proof in `tests/SprintSync.Api.Tests/Isolation/QueryFilterTests.cs` — a throwaway `TenantScopedEntity` returns only ambient-org rows and never cross-org rows (research R2/R9)
+- [x] T030 [P] [US4] Cross-tenant attack integration tests in `tests/SprintSync.Api.Tests/Isolation/CrossTenantAccessTests.cs` — non-member `GET /organizations/{id}` → 404 indistinguishable from an unknown id; `PUT /me/active-organization` to a non-member org → 404 (unchanged); `X-Organization-Id` spoof ignored (context from verified membership); stale membership → next access denied (FR-007/008/009/010, SC-002)
+- [x] T031 [P] [US4] Query-filter mechanism proof in `tests/SprintSync.Api.Tests/Isolation/QueryFilterTests.cs` — a throwaway `TenantScopedEntity` returns only ambient-org rows and never cross-org rows (research R2/R9)
 
 ### Implementation
 
-- [ ] T032 [P] [US4] `OrganizationDetail` DTO in `src/SprintSync.Api/Contracts/OrganizationDetail.cs`
-- [ ] T033 [US4] Implement `GET /api/v1/organizations/{organizationId}` in `src/SprintSync.Api/Features/Organizations/GetOrganization.cs` — fetch via a **single uniform membership-gated query** (no separate "does org exist?" lookup, no existence-vs-membership branch, no extra round-trip); non-member and unknown ids both return byte-identical 404 + ProblemDetails (FR-008/009, hide-existence, research R4)
-- [ ] T034 [US4] Enforce timing-oracle resistance by construction: (a) implement a custom authorization result handler in `src/SprintSync.Api/Auth/HideExistenceAuthorizationResultHandler.cs` mapping `OrgMember` policy denials on hide-existence resources to 404 (never 403) with the uniform ProblemDetails (Principle VIII preserved); (b) add a timing-parity regression test in `tests/SprintSync.Api.Tests/Isolation/CrossTenantAccessTests.cs` asserting non-member vs unknown-id latency stays within a tolerance band over repeated samples (FR-009, research R4)
+- [x] T032 [P] [US4] `OrganizationDetail` DTO in `src/SprintSync.Api/Contracts/OrganizationDetail.cs`
+- [x] T033 [US4] Implement `GET /api/v1/organizations/{organizationId}` in `src/SprintSync.Api/Features/Organizations/GetOrganization.cs` — fetch via a **single uniform membership-gated query** (no separate "does org exist?" lookup, no existence-vs-membership branch, no extra round-trip); non-member and unknown ids both return byte-identical 404 + ProblemDetails (FR-008/009, hide-existence, research R4)
+- [x] T034 [US4] Enforce timing-oracle resistance by construction: (a) implement a custom authorization result handler in `src/SprintSync.Api/Auth/HideExistenceAuthorizationResultHandler.cs` mapping `OrgMember` policy denials on hide-existence resources to 404 (never 403) with the uniform ProblemDetails (Principle VIII preserved); (b) add a timing-parity regression test in `tests/SprintSync.Api.Tests/Isolation/CrossTenantAccessTests.cs` asserting non-member vs unknown-id latency stays within a tolerance band over repeated samples (FR-009, research R4)
 
 **Checkpoint**: Isolation guarantee proven; US1 + US2 + US4 all pass.
+
+> **Note**: T030 asserts hide-existence on `PUT /me/active-organization`, whose
+> implementation is T036/T037 in Phase 6. Those two were pulled forward into
+> Phase 5 so the US4 guarantee could be proven on the "act" path as well as the
+> "read" path. Phase 6 therefore has only its own test (T035) left.
 
 ---
 
@@ -143,12 +148,12 @@ switch to "Beta", confirm each switch takes effect on the next request.
 
 ### Tests (write first, must fail)
 
-- [ ] T035 [P] [US3] Integration test: `PUT /api/v1/me/active-organization` switches active org and persists it; non-member target → 404 with previous selection unchanged; **and** a stale/invalid persisted active org resolves to another valid org (or null empty state) on `GET /me`, never the stale one and never granting access — in `tests/SprintSync.Api.Tests/Me/ActiveOrganizationTests.cs` (FR-006/007/014)
+- [x] T035 [P] [US3] Integration test: `PUT /api/v1/me/active-organization` switches active org and persists it; non-member target → 404 with previous selection unchanged; **and** a stale/invalid persisted active org resolves to another valid org (or null empty state) on `GET /me`, never the stale one and never granting access — in `tests/SprintSync.Api.Tests/Me/ActiveOrganizationTests.cs` (FR-006/007/014)
 
 ### Implementation
 
-- [ ] T036 [P] [US3] `SetActiveOrganizationRequest` DTO in `src/SprintSync.Api/Contracts/SetActiveOrganizationRequest.cs`
-- [ ] T037 [US3] Implement `PUT /api/v1/me/active-organization` in `src/SprintSync.Api/Features/Me/SetActiveOrganization.cs` — verify membership, set `User.ActiveOrganizationId`, 404 hide-existence on non-member (FR-006/007/014)
+- [x] T036 [P] [US3] `SetActiveOrganizationRequest` DTO in `src/SprintSync.Api/Contracts/SetActiveOrganizationRequest.cs`
+- [x] T037 [US3] Implement `PUT /api/v1/me/active-organization` in `src/SprintSync.Api/Features/Me/SetActiveOrganization.cs` — verify membership, set `User.ActiveOrganizationId`, 404 hide-existence on non-member (FR-006/007/014)
 
 **Checkpoint**: All API user stories independently functional.
 
@@ -159,11 +164,11 @@ switch to "Beta", confirm each switch takes effect on the next request.
 **Purpose**: The user-facing surface for the stories above. Additive over the
 API MVP; the API remains the independently testable increment.
 
-- [ ] T038 [P] Configure MSAL sign-in against Entra External ID in `web/sprint-sync-web/src/auth/`
-- [ ] T039 [P] Typed API client (generated from `contracts/openapi.yaml`) attaching the bearer token in `web/sprint-sync-web/src/api/`
-- [ ] T040 [US1] Create-organization form + "create your first organization" empty state in `web/sprint-sync-web/src/features/organizations/`
-- [ ] T041 [US2] Organization list view in `web/sprint-sync-web/src/features/organizations/`
-- [ ] T042 [US3] Active-organization switcher in `web/sprint-sync-web/src/features/organizations/`
+- [x] T038 [P] Configure MSAL sign-in against Entra External ID in `web/sprint-sync-web/src/auth/`
+- [x] T039 [P] Typed API client (generated from `contracts/openapi.yaml`) attaching the bearer token in `web/sprint-sync-web/src/api/`
+- [x] T040 [US1] Create-organization form + "create your first organization" empty state in `web/sprint-sync-web/src/features/organizations/`
+- [x] T041 [US2] Organization list view in `web/sprint-sync-web/src/features/organizations/`
+- [x] T042 [US3] Active-organization switcher in `web/sprint-sync-web/src/features/organizations/`
 
 ---
 
@@ -171,13 +176,23 @@ API MVP; the API remains the independently testable increment.
 
 **Purpose**: Deployment cost controls, contract verification, demo data.
 
-- [ ] T043 [P] Configure ACA scale-to-zero (`minReplicas = 0`) and Azure SQL free serverless + auto-pause via `ConfigureInfrastructure` in `src/SprintSync.AppHost/` (Principle 12, research R8)
-- [ ] T044 [P] Configure React deployment to Azure Static Web Apps Free + `azd` wiring
-- [ ] T045 Pre-deploy guard: document/automate the `azd infra synth` review (no `minReplicas > 0`, no idle-billable resources) in `quickstart.md`/CI (Principle 12)
-- [ ] T046 [P] Verify `/openapi/v1.json` is published and matches `contracts/openapi.yaml` (Principle III)
-- [ ] T047 [P] Implement a deterministic demo seeder (users, orgs, memberships) for local runs in `src/SprintSync.Api/Data/DemoSeeder.cs`
-- [ ] T048 Run `quickstart.md` validation end-to-end (all journeys + isolation attacks)
-- [ ] T049 [P] Add a $1 Azure budget alert as the cost backstop (Principle 12)
+- [x] T043 [P] Configure ACA scale-to-zero (`minReplicas = 0`) and Azure SQL free serverless + auto-pause via `ConfigureInfrastructure` in `src/SprintSync.AppHost/` (Principle 12, research R8)
+- [x] T044 [P] Configure React deployment to Azure Static Web Apps Free + `azd` wiring
+- [x] T045 Pre-deploy guard: document/automate the `azd infra synth` review (no `minReplicas > 0`, no idle-billable resources) in `quickstart.md`/CI (Principle 12)
+- [x] T046 [P] Verify `/openapi/v1.json` is published and matches `contracts/openapi.yaml` (Principle III)
+- [x] T047 [P] Implement a deterministic demo seeder (users, orgs, memberships) for local runs in `src/SprintSync.Api/Data/DemoSeeder.cs`
+- [x] T048 Run `quickstart.md` validation end-to-end (all journeys + isolation attacks)
+
+> **T048 validation record**: `dotnet run --project src/SprintSync.AppHost` brings up
+> all three resources (SQL container, API, Vite SPA). Verified against the running
+> stack: `/openapi/v1.json` publishes `Sprint Sync API` v1.0 with exactly the four
+> contracted paths; all five operations return 401 unauthenticated; the demo seeder
+> produced its cast (Alice 2 orgs/active Acme, Bob 2 orgs/active Gamma, Carol empty
+> state). Every user journey and isolation attack in quickstart.md is covered by the
+> automated suite (31 tests), which quickstart.md itself designates as the
+> authoritative check. **Not validated**: the signed-in browser walkthrough, which
+> needs a live Entra External ID tenant that does not exist for this repo.
+- [x] T049 [P] Add a $1 Azure budget alert as the cost backstop (Principle 12)
 
 ---
 

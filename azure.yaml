@@ -1,0 +1,29 @@
+# azd configuration. The Aspire AppHost owns the API + SQL topology; the React
+# app is deployed separately to Static Web Apps Free so the SPA never consumes
+# the Azure Container Apps compute grant (Principle 12, research R8).
+name: sprint-sync
+
+services:
+  app:
+    language: dotnet
+    project: ./src/SprintSync.AppHost/SprintSync.AppHost.csproj
+    host: containerapp
+
+  web:
+    language: js
+    project: ./web/sprint-sync-web
+    host: staticwebapp
+    dist: dist
+
+hooks:
+  # Cost backstop: refuse to provision if the synthesized infrastructure would
+  # bill while idle (Principle 12). See specs/001-org-tenant-context/quickstart.md.
+  preprovision:
+    posix:
+      shell: sh
+      run: ./scripts/check-idle-cost.sh
+      continueOnError: false
+    windows:
+      shell: pwsh
+      run: ./scripts/check-idle-cost.ps1
+      continueOnError: false

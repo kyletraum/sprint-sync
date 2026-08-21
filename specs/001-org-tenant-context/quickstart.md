@@ -133,3 +133,10 @@ misconfiguration cannot slip through as a green check.
 plus a little Log Analytics stand regardless, while the API scales to zero, SQL
 auto-pauses, and the SPA sits on Static Web Apps Free. The cost guard keeps ACR on
 the Basic SKU so that floor cannot silently grow (P1-5).
+
+### Known acceptances
+
+- **SQL public network access** is enabled (the free serverless database is
+  reachable over the internet, firewalled). A conscious acceptance for a demo;
+  the hardening path is a private endpoint, or scoping the firewall to the
+  container app environment's outbound IP (P2-12).

@@ -86,6 +86,19 @@ public sealed class CreateOrganizationTests(SqlServerFixture sql) : IDisposable
     }
 
     [Fact]
+    public async Task Create_ZeroWidthOrFormatOnlyName_Returns400()
+    {
+        var client = _factory.CreateClientFor($"user-{Guid.NewGuid()}");
+
+        // Zero-width space + BOM + word-joiner: all survive Trim() but are
+        // meaningless, and would render blank in the list/switcher (P1-6).
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/organizations", new { name = "​﻿⁠" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Create_NameLength_CountsUtf16CodeUnits_NotCodePoints()
     {
         var client = _factory.CreateClientFor($"user-{Guid.NewGuid()}");

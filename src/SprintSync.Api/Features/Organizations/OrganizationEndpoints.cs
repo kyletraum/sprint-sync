@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using SprintSync.Api.Auth;
 using SprintSync.Api.Contracts;
@@ -8,6 +10,18 @@ namespace SprintSync.Api.Features.Organizations;
 
 public static class OrganizationEndpoints
 {
+    // A name made only of whitespace, control, or zero-width/format code points
+    // (e.g. U+200B, U+FEFF, U+2060) is not "non-empty" in any meaningful sense —
+    // it renders blank in the list and switcher. Trim() doesn't catch Cf/Cc, so
+    // reject when nothing meaningful remains (FR-012, P1-6).
+    private static bool IsBlankOrFormatOnly(string value) =>
+        value.EnumerateRunes().All(rune =>
+            Rune.IsWhiteSpace(rune)
+            || Rune.GetUnicodeCategory(rune) is UnicodeCategory.Control
+                or UnicodeCategory.Format
+                or UnicodeCategory.Surrogate
+                or UnicodeCategory.OtherNotAssigned);
+
     public static RouteGroupBuilder MapOrganizationEndpoints(this RouteGroupBuilder group)
     {
         // GET /organizations — the caller's organizations (FR-005, SC-003).
@@ -89,11 +103,11 @@ public static class OrganizationEndpoints
             }
 
             var name = request.Name?.Trim() ?? string.Empty;
-            if (name.Length is 0 or > 100)
+            if (name.Length is 0 or > 100 || IsBlankOrFormatOnly(name))
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                 {
-                    ["name"] = ["Name is required and must be 1-100 characters."],
+                    ["name"] = ["Name is required and must be 1-100 characters of meaningful text."],
                 });
             }
 

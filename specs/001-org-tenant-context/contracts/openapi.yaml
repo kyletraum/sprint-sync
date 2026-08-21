@@ -205,8 +205,9 @@ components:
           minLength: 1
           maxLength: 100
           description: >
-            Non-empty, non-whitespace, at most 100 UTF-16 code units (the length
-            unit the server enforces) (FR-012).
+            Surrounding whitespace is trimmed first; the result must be meaningful
+            (not only whitespace or zero-width/format characters) and at most 100
+            UTF-16 code units — the length unit the server enforces (FR-012).
 
     SetActiveOrganizationRequest:
       type: object

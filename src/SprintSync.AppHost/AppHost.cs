@@ -16,7 +16,12 @@ var builder = DistributedApplication.CreateBuilder(args);
 // (verified by the cost guard). The earlier synth failure was NOT here — it was
 // azure.yaml pairing this Aspire service with a sibling `web` service, which azd
 // forbids; fixed there (P1-4).
-builder.AddAzureContainerAppEnvironment("cae");
+// Publish-only: the ACA environment is a deploy concept, so skip it in run mode
+// to keep local `dotnet run` clean and synth deterministic (P2-11).
+if (builder.ExecutionContext.IsPublishMode)
+{
+    builder.AddAzureContainerAppEnvironment("cae");
+}
 
 // Azure SQL when published; a plain container locally, so developers need no
 // cloud resource to run the stack.
@@ -62,8 +67,8 @@ var api = builder.AddProject<Projects.SprintSync_Api>("api")
     .WithReference(db)
     .WaitFor(db)
     .WithExternalHttpEndpoints()
-    // Create the schema on the deployed (Production) API too — safe because the
-    // container app runs at MaxReplicas = 1, so no concurrent-migration race (P0-2).
+    // Create the schema on the deployed (Production) API too (P0-2). MaxReplicas=1
+    // avoids a race within a revision; see the cross-revision caveat in Program.cs (P1-4).
     .WithEnvironment("Database__MigrateOnStartup", "true")
     // Deterministic demo cast.
     .WithEnvironment("DemoData__Enabled", "true")

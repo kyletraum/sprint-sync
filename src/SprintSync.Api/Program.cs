@@ -98,10 +98,16 @@ if (app.Configuration.GetValue<bool>("TestEndpoints:Enabled"))
 }
 
 // Schema is applied on startup outside Production (local dev + integration
-// tests), and in Production only when explicitly opted in — safe here because
-// the API publishes with MaxReplicas = 1, so there is no concurrent-migration
-// race. The Aspire AppHost sets Database:MigrateOnStartup for the deployed API
-// so the schema exists on first request (P0-2).
+// tests), and in Production only when Database:MigrateOnStartup is set — the
+// Aspire AppHost sets it for the deployed API so the schema exists on first
+// request (P0-2).
+//
+// CAVEAT (P1-4): MaxReplicas = 1 prevents a race WITHIN one revision, but a
+// rolling update (Single revision mode) can briefly run the new revision's
+// MigrateAsync while the old revision is still live — a cross-revision window
+// where two processes may apply DDL concurrently. Low-probability at demo scale,
+// and transient faults are retried by EnableRetryOnFailure; a hardened deploy
+// would run migrations as a one-shot pre-deploy step or under a SQL app-lock.
 var migrateOnStartup = !app.Environment.IsProduction()
     || app.Configuration.GetValue<bool>("Database:MigrateOnStartup");
 if (migrateOnStartup)

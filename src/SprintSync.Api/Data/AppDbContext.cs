@@ -49,15 +49,18 @@ public class AppDbContext : DbContext
     /// Write-path counterpart to the global query filter (Principle V): global
     /// query filters guard reads only, so without this a Guid.Empty or
     /// cross-tenant OrganizationId could be written by discipline-free handler
-    /// code. Every added/modified <see cref="TenantScopedEntity"/> is stamped
-    /// from the ambient tenant and rejected if it targets any other org — closing
-    /// the isolation seam symmetrically before the first work-data entity exists.
+    /// code. Every added, modified, OR DELETED <see cref="TenantScopedEntity"/>
+    /// is checked against the ambient tenant (and an unset org stamped on insert),
+    /// and rejected if it targets any other org — a cross-tenant DELETE via a
+    /// detached PK stub bypasses the read filter, so the guard must cover deletes
+    /// too (P0-2). This closes the isolation seam symmetrically before the first
+    /// work-data entity exists.
     /// </summary>
     private void StampAndGuardTenant()
     {
         foreach (var entry in ChangeTracker.Entries<TenantScopedEntity>())
         {
-            if (entry.State is not (EntityState.Added or EntityState.Modified))
+            if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted))
             {
                 continue;
             }
@@ -66,6 +69,7 @@ public class AppDbContext : DbContext
                 ?? throw new InvalidOperationException(
                     "Refusing to write a tenant-scoped entity with no ambient tenant resolved (Principle VI).");
 
+            // Stamp an unset org on INSERT only; never rewrite an org on update/delete.
             if (entry.State == EntityState.Added && entry.Entity.OrganizationId == Guid.Empty)
             {
                 entry.Entity.OrganizationId = ambient;

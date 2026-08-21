@@ -63,9 +63,15 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next)
                 // value is applied in-memory below regardless, so a failed write
                 // must not 500 an otherwise-successful (idempotent) GET — it re-heals
                 // next request (P1-2). Narrowed to DB faults and raised to Warning so
-                // a persistent failure is observable, not silent (P2-8); skipped when
-                // the value is unchanged.
-                if (user.ActiveOrganizationId != resolved)
+                // a persistent failure is observable, not silent (P2-8).
+                //
+                // Skipped on act-as (X-Organization-Id) requests and when the value
+                // is unchanged: an act-as request must not mutate the persisted active
+                // org, and skipping narrows a lost-update race against a concurrent
+                // PUT /me/active-organization. Accepted semantics otherwise:
+                // last-writer-wins on this single per-user field (P1-5).
+                var isActAsRequest = context.Request.Headers.ContainsKey(OrganizationHeader);
+                if (!isActAsRequest && user.ActiveOrganizationId != resolved)
                 {
                     try
                     {

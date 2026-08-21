@@ -96,6 +96,24 @@ public sealed class TenantWriteGuardTests(SqlServerFixture sql) : IAsyncLifetime
         await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
     }
 
+    [Fact]
+    public async Task Delete_ForADifferentOrg_IsRejected()
+    {
+        var id = await SeedRowAsync(_orgA);
+
+        // From an orgB context, delete orgA's row via a detached PK stub. The
+        // DELETE bypasses the read query filter (filters don't apply to a
+        // PK-targeted delete), so the write guard must stop it (P0-2).
+        await using var db = Context(TenantFor(_orgB));
+        db.ScopedRows.Remove(new TestScopedRow { Id = id, OrganizationId = _orgA });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+
+        // The row survives the rejected cross-tenant delete.
+        await using var check = Context(TenantFor(_orgA));
+        Assert.NotNull(await check.ScopedRows.SingleOrDefaultAsync(r => r.Id == id));
+    }
+
     private async Task<Guid> SeedRowAsync(Guid organizationId)
     {
         var id = Guid.NewGuid();

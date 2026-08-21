@@ -15,12 +15,17 @@ public sealed class UserProvisioningMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context, AppDbContext db, ICurrentUser currentUser)
     {
+        // The client has gone if this trips; abandoning the provisioning round
+        // trip is the point (T051).
+        var cancellationToken = context.RequestAborted;
+
         if (context.User.Identity?.IsAuthenticated == true)
         {
             var externalId = context.User.GetExternalId();
             if (!string.IsNullOrEmpty(externalId))
             {
-                var user = await db.Users.FirstOrDefaultAsync(u => u.ExternalId == externalId);
+                var user = await db.Users.FirstOrDefaultAsync(
+                    u => u.ExternalId == externalId, cancellationToken);
                 if (user is null)
                 {
                     user = new User
@@ -33,7 +38,7 @@ public sealed class UserProvisioningMiddleware(RequestDelegate next)
                     db.Users.Add(user);
                     try
                     {
-                        await db.SaveChangesAsync();
+                        await db.SaveChangesAsync(cancellationToken);
                     }
                     catch (DbUpdateException ex) when (ex.InnerException is SqlException { Number: 2601 or 2627 })
                     {
@@ -43,7 +48,8 @@ public sealed class UserProvisioningMiddleware(RequestDelegate next)
                         // adopt the committed user so both requests succeed rather
                         // than 500 (FR-013). Any other failure propagates (P2-10).
                         db.Entry(user).State = EntityState.Detached;
-                        user = await db.Users.SingleAsync(u => u.ExternalId == externalId);
+                        user = await db.Users.SingleAsync(
+                            u => u.ExternalId == externalId, cancellationToken);
                     }
                 }
 

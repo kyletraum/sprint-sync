@@ -24,6 +24,7 @@ public static class MeEndpoints
         .WithTags("Me")
         .RequireAuthorization()
         .Produces<MeResponse>(200)
+        .Produces(401)
         .WithName("GetMe");
 
         // PUT /me/active-organization — switch the acting organization
@@ -32,7 +33,8 @@ public static class MeEndpoints
         // caller does not belong to gets the same uniform 404 as one that does
         // not exist, and the previous selection is left untouched.
         group.MapPut("/me/active-organization", async (
-            SetActiveOrganizationRequest request, ICurrentUser currentUser, AppDbContext db) =>
+            SetActiveOrganizationRequest request, ICurrentUser currentUser, AppDbContext db,
+            CancellationToken cancellationToken) =>
         {
             if (currentUser.User is not { } user)
             {
@@ -49,8 +51,9 @@ public static class MeEndpoints
                 });
             }
 
-            var isMember = await db.Memberships.AnyAsync(m =>
-                m.UserId == user.Id && m.OrganizationId == request.OrganizationId);
+            var isMember = await db.Memberships.AnyAsync(
+                m => m.UserId == user.Id && m.OrganizationId == request.OrganizationId,
+                cancellationToken);
 
             if (!isMember)
             {
@@ -58,7 +61,7 @@ public static class MeEndpoints
             }
 
             user.ActiveOrganizationId = request.OrganizationId;
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(cancellationToken);
 
             // Echo the updated state so the caller needs no follow-up GET /me.
             return Results.Ok(new MeResponse(user.Id, user.DisplayName, user.ActiveOrganizationId));
@@ -66,6 +69,8 @@ public static class MeEndpoints
         .WithTags("Me")
         .RequireAuthorization()
         .Produces<MeResponse>(200)
+        .ProducesValidationProblem()
+        .Produces(401)
         .Produces(404)
         .WithName("SetActiveOrganization");
 

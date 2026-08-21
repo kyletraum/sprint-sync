@@ -30,7 +30,8 @@ public static class OrganizationEndpoints
         // does not require the OrgMember policy — a user with no memberships
         // gets an empty page rather than a denial.
         group.MapGet("/organizations", async (
-            ICurrentUser currentUser, AppDbContext db, int? page, int? pageSize) =>
+            ICurrentUser currentUser, AppDbContext db, int? page, int? pageSize,
+            CancellationToken cancellationToken) =>
         {
             if (currentUser.User is not { } user)
             {
@@ -40,7 +41,7 @@ public static class OrganizationEndpoints
             var paging = PageRequest.From(page, pageSize);
 
             var memberships = db.Memberships.Where(m => m.UserId == user.Id);
-            var totalCount = await memberships.CountAsync();
+            var totalCount = await memberships.CountAsync(cancellationToken);
 
             // Stable ordering so pages partition the set without overlap or gaps.
             var items = await memberships
@@ -49,7 +50,7 @@ public static class OrganizationEndpoints
                 .Skip(paging.Skip)
                 .Take(paging.PageSize)
                 .Select(m => new OrganizationSummary(m.OrganizationId, m.Organization.Name, m.Role))
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             return Results.Ok(new PagedResult<OrganizationSummary>(
                 items, paging.Page, paging.PageSize, totalCount));
@@ -57,6 +58,7 @@ public static class OrganizationEndpoints
         .WithTags("Organizations")
         .RequireAuthorization()
         .Produces<PagedResult<OrganizationSummary>>(200)
+        .Produces(401)
         .WithName("ListMyOrganizations");
 
         // GET /organizations/{organizationId} — hide-existence read (FR-008/009).
@@ -67,7 +69,8 @@ public static class OrganizationEndpoints
         // travel the identical path and produce the identical 404, so neither
         // the response nor its latency reveals which case occurred (research R4).
         group.MapGet("/organizations/{organizationId:guid}", async (
-            Guid organizationId, ICurrentUser currentUser, AppDbContext db) =>
+            Guid organizationId, ICurrentUser currentUser, AppDbContext db,
+            CancellationToken cancellationToken) =>
         {
             if (currentUser.User is not { } user)
             {
@@ -83,19 +86,21 @@ public static class OrganizationEndpoints
                     o.Memberships.First(m => m.UserId == user.Id).Role,
                     o.Memberships.Count,
                     o.CreatedAt))
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(cancellationToken);
 
             return detail is null ? HideExistence.NotFound() : Results.Ok(detail);
         })
         .WithTags("Organizations")
         .RequireAuthorization()
         .Produces<OrganizationDetail>(200)
+        .Produces(401)
         .Produces(404)
         .WithName("GetOrganization");
 
         // POST /organizations — create an org, become its Owner (FR-001/002/003).
         group.MapPost("/organizations", async (
-            CreateOrganizationRequest request, ICurrentUser currentUser, AppDbContext db) =>
+            CreateOrganizationRequest request, ICurrentUser currentUser, AppDbContext db,
+            CancellationToken cancellationToken) =>
         {
             if (currentUser.User is not { } user)
             {
@@ -135,7 +140,7 @@ public static class OrganizationEndpoints
                 user.ActiveOrganizationId = org.Id;
             }
 
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(cancellationToken);
 
             var summary = new OrganizationSummary(org.Id, org.Name, OrgRole.Owner);
             return Results.Created($"/api/v1/organizations/{org.Id}", summary);
@@ -144,6 +149,7 @@ public static class OrganizationEndpoints
         .RequireAuthorization()
         .Produces<OrganizationSummary>(201)
         .ProducesValidationProblem()
+        .Produces(401)
         .WithName("CreateOrganization");
 
         return group;

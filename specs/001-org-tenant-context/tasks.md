@@ -212,11 +212,37 @@ idle floor).
 
 ### Phase 9A: Buildable now (no live Azure required)
 
-- [ ] T050 [P] Guard migrate-on-startup against the cross-revision rollout window in `src/SprintSync.Api/Program.cs` — wrap the `MigrateAsync` call in a SQL `sp_getapplock`/`sp_releaseapplock` pair (session or transaction scoped, acquired inside the existing execution strategy) so two revisions cannot apply DDL concurrently; replace the CAVEAT comment at Program.cs:105-110 with what the lock now guarantees. Handoff item 3 (Round 5 P1-4).
-- [ ] T051 [P] Thread `CancellationToken` (`HttpContext.RequestAborted`) through every EF call in `src/SprintSync.Api/Auth/UserProvisioningMiddleware.cs`, `src/SprintSync.Api/Tenancy/TenantResolutionMiddleware.cs`, `src/SprintSync.Api/Features/Me/MeEndpoints.cs`, and `src/SprintSync.Api/Features/Organizations/OrganizationEndpoints.cs` (bind the token as a Minimal API parameter in the endpoints). Handoff item 5 (Round 5 P2-8).
-- [ ] T052 [P] Deepen the file-vs-served OpenAPI contract test in `tests/SprintSync.Api.Tests/Contract/OpenApiContractTests.cs` — beyond the current operation-set and response-body-property assertions, assert that each contracted operation's **declared response status codes** and its **request-body required fields** match `specs/001-org-tenant-context/contracts/openapi.yaml`. Handoff item 6 (Round 5 P2-9).
-- [ ] T053 [P] Rewrite the tenant global query filter in `src/SprintSync.Api/Data/AppDbContext.cs:120-133` from the `Expression.Constant(this)` reflection form to the idiomatic context-instance-member reference; `tests/SprintSync.Api.Tests/Isolation/QueryFilterTests.cs` must stay green (behaviour-preserving refactor only). Handoff item 7 (Round 5 P2-7).
-- [ ] T054 [P] **(OPTIONAL — reviewer: no change required)** Refresh the provisioned `DisplayName` from the token on repeat login in `src/SprintSync.Api/Auth/UserProvisioningMiddleware.cs`, guarded to write only when the value actually changed. Handoff item 8 (Round 5 P2-13). Skip unless the create-only JIT decision is deliberately revisited.
+- [x] T050 [P] Guard migrate-on-startup against the cross-revision rollout window in `src/SprintSync.Api/Program.cs` — wrap the `MigrateAsync` call in a SQL `sp_getapplock`/`sp_releaseapplock` pair (session or transaction scoped, acquired inside the existing execution strategy) so two revisions cannot apply DDL concurrently; replace the CAVEAT comment at Program.cs:105-110 with what the lock now guarantees. Handoff item 3 (Round 5 P1-4).
+- [x] T051 [P] Thread `CancellationToken` (`HttpContext.RequestAborted`) through every EF call in `src/SprintSync.Api/Auth/UserProvisioningMiddleware.cs`, `src/SprintSync.Api/Tenancy/TenantResolutionMiddleware.cs`, `src/SprintSync.Api/Features/Me/MeEndpoints.cs`, and `src/SprintSync.Api/Features/Organizations/OrganizationEndpoints.cs` (bind the token as a Minimal API parameter in the endpoints). Handoff item 5 (Round 5 P2-8).
+- [x] T052 [P] Deepen the file-vs-served OpenAPI contract test in `tests/SprintSync.Api.Tests/Contract/OpenApiContractTests.cs` — beyond the current operation-set and response-body-property assertions, assert that each contracted operation's **declared response status codes** and its **request-body required fields** match `specs/001-org-tenant-context/contracts/openapi.yaml`. Handoff item 6 (Round 5 P2-9).
+- [x] T053 [P] Rewrite the tenant global query filter in `src/SprintSync.Api/Data/AppDbContext.cs:120-133` from the `Expression.Constant(this)` reflection form to the idiomatic context-instance-member reference; `tests/SprintSync.Api.Tests/Isolation/QueryFilterTests.cs` must stay green (behaviour-preserving refactor only). Handoff item 7 (Round 5 P2-7).
+- [ ] T054 [P] **(OPTIONAL — reviewer: no change required; NOT taken up, see record below)** Refresh the provisioned `DisplayName` from the token on repeat login in `src/SprintSync.Api/Auth/UserProvisioningMiddleware.cs`, guarded to write only when the value actually changed. Handoff item 8 (Round 5 P2-13). Skip unless the create-only JIT decision is deliberately revisited.
+
+> **Phase 9A validation record**: T050–T053 are code-complete and were written
+> against the current tree (each premise re-verified before editing). **They have
+> NOT been compiled or tested.** This session's environment has no .NET SDK and no
+> Docker: the SDK download host `builds.dotnet.microsoft.com` is refused by the
+> egress policy (403 at the agent proxy), and without Docker the Testcontainers
+> SQL suite cannot run at all. `.github/workflows/ci.yml` is therefore the
+> verification gate for this batch — build, the 56-test integration suite, the web
+> job and the cost guard all run there. Treat Phase 9A as unverified until that CI
+> run is green.
+>
+> Two changes carry the most risk if a premise is wrong:
+> - **T053** touches the isolation spine. `QueryFilterTests` — specifically
+>   `Filter_IsReEvaluatedPerContextInstance` and
+>   `Filter_SurvivesTenantChangeWithinOneContext` — is what proves the refactor
+>   preserved per-instance re-evaluation. If CI cannot be run, revert T053 first:
+>   it is a pure style change with no functional benefit.
+> - **T052** asserts two-way equality between the contract file's declared response
+>   status codes and the served document's. The endpoints were given the matching
+>   `.Produces(401)` / `.ProducesValidationProblem()` declarations to make that hold.
+>   If ASP.NET Core injects additional status codes of its own, this test is where
+>   it will surface — a one-line allowance, not a design problem.
+>
+> **T054 was deliberately not taken up.** The handoff records create-only JIT
+> provisioning as a settled decision and the reviewer marked the item "no change
+> required"; implementing it would reopen a decision nobody asked to revisit.
 
 ### Phase 9B: Deploy-gated (require a real `azd up` / live Entra tenant / CI runner)
 
@@ -224,6 +250,7 @@ idle floor).
 - [ ] T056 After T055, extend `scripts/check-idle-cost.sh` and `scripts/check-idle-cost.ps1` to reject orphan `Microsoft.App/containerApps` modules that are not reachable from `infra/main.bicep`, so mere presence of a `.bicep` file under `infra/` can no longer satisfy the fail-closed `saw_containerapp`/`saw_zero_floor` checks. Keep both twins behaviourally identical. Handoff item 2 (Round 5 P1-3).
 - [ ] T057 Add ACA liveness/readiness probes targeting the already-exposed `/alive` (and `/health`) endpoints via `ConfigureInfrastructure` in `src/SprintSync.AppHost/`, and enable the stubbed Azure Monitor OTLP exporter in `src/SprintSync.ServiceDefaults/Extensions.cs:91-94` behind `APPLICATIONINSIGHTS_CONNECTION_STRING`; confirm traces actually arrive. **Verify against a real deploy** — a wrong probe port crash-loops the container. Handoff item 4 (Rounds 2 & 5).
 - [ ] T058 Run `.github/workflows/ci.yml` live on a real runner and perform a real `azd up`, then validate end-to-end: the cross-tenant attack suite (`tests/SprintSync.Api.Tests/Isolation/`) against the deployed API and an interactive Entra External ID sign-in through the web app. Record the outcome under the T048 validation record so the "Not validated" gap there is closed. Handoff item 9 (whole-session gap). **Principle IX evidence — gates any claim the feature is production-done.**
+
 
 **Checkpoint**: Phase 9A can complete and merge without Azure. Phase 9B closes out
 at the first real deploy; until then the feature is "verified in the build

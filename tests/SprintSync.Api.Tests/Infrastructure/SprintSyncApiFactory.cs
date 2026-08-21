@@ -20,6 +20,7 @@ public sealed class SprintSyncApiFactory(string connectionString) : WebApplicati
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:sprintsync", connectionString);
+        builder.UseSetting("TestEndpoints:Enabled", "true");
 
         builder.ConfigureTestServices(services =>
         {

@@ -45,6 +45,12 @@ builder.Services.AddSprintSyncAuth(builder.Configuration);
 
 var app = builder.Build();
 
+// Uniform error contract (Principle III): unhandled exceptions and otherwise
+// bodyless status codes are rendered as RFC 9457 ProblemDetails, never a bare
+// framework 500. Registered first so it wraps the whole pipeline.
+app.UseExceptionHandler();
+app.UseStatusCodePages();
+
 app.MapDefaultEndpoints();
 
 // Published OpenAPI (Principle III) — always, not dev-only.
@@ -62,12 +68,34 @@ var v1 = app.MapGroup("/api/v1");
 v1.MapMeEndpoints();
 v1.MapOrganizationEndpoints();
 
-// Apply migrations on startup outside Production (local dev + integration tests).
-if (!app.Environment.IsProduction())
+// Test-only endpoints — off unless TestEndpoints:Enabled, never mapped in
+// production. They exercise pipeline paths no production endpoint reaches yet:
+// the OrgMember policy's 403->404 hide-existence mapping (P1-9) and the
+// ProblemDetails rendering of an unhandled exception (P1-3).
+if (app.Configuration.GetValue<bool>("TestEndpoints:Enabled"))
+{
+    v1.MapGet("/_test/org-scoped", () => Results.Ok(new { ok = true }))
+        .RequireAuthorization(SprintSync.Api.Auth.AuthorizationPolicies.OrgMember)
+        .ExcludeFromDescription()
+        .WithName("TestOrgScoped");
+
+    v1.MapGet("/_test/boom", IResult () => throw new InvalidOperationException("boom"))
+        .ExcludeFromDescription()
+        .WithName("TestBoom");
+}
+
+// Schema is applied on startup outside Production (local dev + integration
+// tests), and in Production only when explicitly opted in — safe here because
+// the API publishes with MaxReplicas = 1, so there is no concurrent-migration
+// race. The Aspire AppHost sets Database:MigrateOnStartup for the deployed API
+// so the schema exists on first request (P0-2).
+var migrateOnStartup = !app.Environment.IsProduction()
+    || app.Configuration.GetValue<bool>("Database:MigrateOnStartup");
+if (migrateOnStartup)
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.Migrate();
+    await db.Database.MigrateAsync();
 
     // Demo data is opt-in rather than "on in Development", so the integration
     // suite — which also runs in Development — never inherits rows it did not

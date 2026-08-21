@@ -53,30 +53,51 @@ public sealed class OpenApiContractTests(SqlServerFixture sql) : IDisposable
     }
 
     [Fact]
-    public async Task EveryContractedOperation_IsRoutable()
+    public async Task EveryContractedOperation_IsRoutable_UnderItsOwnVerb()
     {
         var client = _factory.CreateClient();
 
         foreach (var operation in ContractOperations)
         {
-            var path = operation.Split(' ')[1].Replace("{organizationId}", Guid.NewGuid().ToString());
-            var response = await client.GetAsync(path);
+            var parts = operation.Split(' ');
+            var path = parts[1].Replace("{organizationId}", Guid.NewGuid().ToString());
+            using var request = new HttpRequestMessage(new HttpMethod(parts[0]), path);
+            var response = await client.SendAsync(request);
 
-            // Unauthenticated, so 401 is the right answer — what matters is that
-            // the route exists at all. A 404 would mean the contract promises a
-            // path nothing serves.
+            // Sent under the CONTRACTED verb, unauthenticated: 401 is expected. A
+            // 404 or 405 would mean the contract promises an operation nothing
+            // serves under that method (P2-14).
             Assert.False(
-                response.StatusCode == HttpStatusCode.NotFound,
-                $"{operation} is in the contract but no route serves '{path}'.");
+                response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed,
+                $"{operation} is contracted but not served under its verb (got {(int)response.StatusCode}).");
         }
+    }
+
+    [Fact]
+    public async Task ContractedResponseBodies_AreSchematisedInTheServedDocument()
+    {
+        using var document = JsonDocument.Parse(await ServedJsonAsync());
+        var root = document.RootElement;
+
+        // Body shape, not just route existence: a field rename or a changed
+        // pagination/response envelope (Principles II/III) must fail here (P1-7).
+        var me = ResponseSchemaProps(root, "/api/v1/me", "get", "200");
+        Assert.Contains("userId", me);
+        Assert.Contains("activeOrganizationId", me);
+
+        var created = ResponseSchemaProps(root, "/api/v1/organizations", "post", "201");
+        Assert.Contains("id", created);
+        Assert.Contains("name", created);
+        Assert.Contains("role", created);
+
+        var page = ResponseSchemaProps(root, "/api/v1/organizations", "get", "200");
+        Assert.Contains("items", page);
+        Assert.Contains("totalCount", page);
     }
 
     private async Task<List<string>> GetServedOperationsAsync()
     {
-        var response = await _factory.CreateClient().GetAsync("/openapi/v1.json");
-        response.EnsureSuccessStatusCode();
-
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var document = JsonDocument.Parse(await ServedJsonAsync());
 
         var operations = new List<string>();
         foreach (var path in document.RootElement.GetProperty("paths").EnumerateObject())
@@ -88,5 +109,52 @@ public sealed class OpenApiContractTests(SqlServerFixture sql) : IDisposable
         }
 
         return operations;
+    }
+
+    private async Task<string> ServedJsonAsync()
+    {
+        var response = await _factory.CreateClient().GetAsync("/openapi/v1.json");
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStringAsync();
+    }
+
+    /// <summary>Property names of an operation's JSON response body schema, resolving $ref and allOf.</summary>
+    private static IReadOnlyCollection<string> ResponseSchemaProps(
+        JsonElement root, string path, string method, string status)
+    {
+        var schema = root.GetProperty("paths").GetProperty(path).GetProperty(method)
+            .GetProperty("responses").GetProperty(status)
+            .GetProperty("content").GetProperty("application/json").GetProperty("schema");
+
+        var props = new List<string>();
+        CollectProps(root, schema, props);
+        Assert.NotEmpty(props);
+        return props;
+    }
+
+    private static void CollectProps(JsonElement root, JsonElement schema, List<string> into)
+    {
+        if (schema.TryGetProperty("$ref", out var refEl))
+        {
+            var name = refEl.GetString()!.Split('/')[^1];
+            CollectProps(root, root.GetProperty("components").GetProperty("schemas").GetProperty(name), into);
+            return;
+        }
+
+        if (schema.TryGetProperty("properties", out var properties))
+        {
+            foreach (var property in properties.EnumerateObject())
+            {
+                into.Add(property.Name);
+            }
+        }
+
+        if (schema.TryGetProperty("allOf", out var allOf))
+        {
+            foreach (var sub in allOf.EnumerateArray())
+            {
+                CollectProps(root, sub, into);
+            }
+        }
     }
 }

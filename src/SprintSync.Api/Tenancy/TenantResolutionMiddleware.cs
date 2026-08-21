@@ -44,8 +44,12 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next)
                 else
                 {
                     // Stale/invalid persisted selection — fall back and self-heal.
+                    // Ordered (name, then id) to mirror the list endpoint so the
+                    // fallback is deterministic and reproducible (P2-13).
                     resolved = await db.Memberships
                         .Where(m => m.UserId == user.Id)
+                        .OrderBy(m => m.Organization.Name)
+                        .ThenBy(m => m.OrganizationId)
                         .Select(m => (Guid?)m.OrganizationId)
                         .FirstOrDefaultAsync();
                     user.ActiveOrganizationId = resolved;

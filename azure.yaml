@@ -1,6 +1,8 @@
-# azd configuration. The Aspire AppHost owns the API + SQL topology; the React
-# app is deployed separately to Static Web Apps Free so the SPA never consumes
-# the Azure Container Apps compute grant (Principle 12, research R8).
+# azd configuration. The Aspire AppHost owns the API + SQL topology and is the
+# ONLY azd service — azd forbids pairing an Aspire service with any sibling
+# service. The React app is therefore NOT an azd service here; it deploys to
+# Static Web Apps Free from CI (see .github/workflows), which also keeps the SPA
+# off the Azure Container Apps compute grant (Principle 12, research R8). (P1-4)
 name: sprint-sync
 
 services:
@@ -8,12 +10,6 @@ services:
     language: dotnet
     project: ./src/SprintSync.AppHost/SprintSync.AppHost.csproj
     host: containerapp
-
-  web:
-    language: js
-    project: ./web/sprint-sync-web
-    host: staticwebapp
-    dist: dist
 
 hooks:
   # Cost backstop: refuse to provision if the synthesized infrastructure would

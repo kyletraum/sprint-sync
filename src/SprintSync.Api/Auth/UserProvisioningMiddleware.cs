@@ -30,7 +30,19 @@ public sealed class UserProvisioningMiddleware(RequestDelegate next)
                         CreatedAt = DateTimeOffset.UtcNow,
                     };
                     db.Users.Add(user);
-                    await db.SaveChangesAsync();
+                    try
+                    {
+                        await db.SaveChangesAsync();
+                    }
+                    catch (DbUpdateException)
+                    {
+                        // A concurrent first request for the same identity won the
+                        // race and committed the row (unique ExternalId index).
+                        // Drop our losing insert and adopt the committed user so
+                        // both requests succeed rather than 500 (FR-013).
+                        db.Entry(user).State = EntityState.Detached;
+                        user = await db.Users.SingleAsync(u => u.ExternalId == externalId);
+                    }
                 }
 
                 currentUser.Set(user);

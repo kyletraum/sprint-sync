@@ -78,3 +78,6 @@ coverage/
 .env.*
 !.env.example
 .vite/
+
+# Stray per-AppHost infra dir azd may emit; canonical infra is at repo root /infra
+src/SprintSync.AppHost/infra/

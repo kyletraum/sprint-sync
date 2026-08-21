@@ -2,9 +2,9 @@
 # Pre-deploy cost guard (constitution Principle 12, task T045).
 #
 # Refuses the deploy if the synthesized infrastructure would bill while nobody
-# is using the app: a Container App with a non-zero replica floor, a SQL
-# database not on the free auto-pausing serverless offer, or any resource that
-# idles billably by nature. POSIX twin of check-idle-cost.ps1.
+# is using the app. Fail-closed: it also refuses if the resources it is meant to
+# vet are ABSENT, so it can never pass by having nothing to check (P1-5). POSIX
+# twin of check-idle-cost.ps1.
 
 set -eu
 
@@ -12,7 +12,7 @@ INFRA_PATH="${1:-$(dirname "$0")/../infra}"
 
 if [ ! -d "$INFRA_PATH" ]; then
   echo "No synthesized infrastructure at '$INFRA_PATH'."
-  echo "Run 'azd infra synth' first, then re-run this check."
+  echo "Run 'azd infra gen' first, then re-run this check."
   exit 1
 fi
 
@@ -28,13 +28,19 @@ fail() {
   failures=$((failures + 1))
 }
 
+saw_containerapp=0
+saw_zero_floor=0
+saw_sql=0
+
 for file in $BICEP_FILES; do
-  # 1. Scale-to-zero: any explicit non-zero floor keeps a replica warm.
+  # Presence + scale-to-zero.
+  if grep -qF 'Microsoft.App/containerApps' "$file"; then saw_containerapp=1; fi
+  if grep -qE 'minReplicas[[:space:]]*:[[:space:]]*0' "$file"; then saw_zero_floor=1; fi
   if grep -qE 'minReplicas[[:space:]]*:[[:space:]]*[1-9]' "$file"; then
     fail "$file : minReplicas is not 0"
   fi
 
-  # 2. Resource types that bill continuously by their nature.
+  # Resource types that bill continuously by their nature.
   for type in 'Microsoft.Cache/redis' \
               'Microsoft.ServiceBus/namespaces' \
               'Microsoft.DBforPostgreSQL/flexibleServers' \
@@ -45,20 +51,30 @@ for file in $BICEP_FILES; do
     fi
   done
 
-  # 3. Dedicated ACA workload profiles bill per-node regardless of traffic.
+  # Dedicated ACA workload profiles bill per-node regardless of traffic.
   if grep -qE "workloadProfileType[[:space:]]*:[[:space:]]*'" "$file" &&
      ! grep -qE "workloadProfileType[[:space:]]*:[[:space:]]*'Consumption'" "$file"; then
     fail "$file : uses a non-Consumption workload profile"
   fi
 
-  # 4. SQL must be on the free serverless offer and auto-pause.
+  # SQL must be on the free serverless offer and auto-pause.
   if grep -qF 'Microsoft.Sql/servers/databases' "$file"; then
+    saw_sql=1
     grep -qE 'useFreeLimit[[:space:]]*:[[:space:]]*true' "$file" ||
       fail "$file : SQL database is not on the free limit"
     grep -qE "freeLimitExhaustionBehavior[[:space:]]*:[[:space:]]*'AutoPause'" "$file" ||
       fail "$file : SQL database does not auto-pause when the free limit is spent"
   fi
 done
+
+# Fail-closed: rules verified against resources that are not present prove nothing.
+[ "$saw_containerapp" -eq 1 ] ||
+  fail "no Microsoft.App/containerApps resource found — cannot confirm scale-to-zero"
+if [ "$saw_containerapp" -eq 1 ] && [ "$saw_zero_floor" -ne 1 ]; then
+  fail "a container app is present but none declares minReplicas: 0"
+fi
+[ "$saw_sql" -eq 1 ] ||
+  fail "no Microsoft.Sql/servers/databases resource found — cannot confirm the free serverless offer"
 
 if [ "$failures" -gt 0 ]; then
   echo ''
@@ -67,5 +83,5 @@ if [ "$failures" -gt 0 ]; then
   exit 1
 fi
 
-echo 'Idle-cost check passed: scale-to-zero, SQL auto-pause, no always-on resources.'
+echo 'Idle-cost check passed: container app scales to zero, SQL auto-pauses on the free limit, no always-on resources.'
 exit 0

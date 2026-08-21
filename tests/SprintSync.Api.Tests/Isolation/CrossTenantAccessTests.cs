@@ -222,6 +222,7 @@ public sealed class CrossTenantAccessTests(SqlServerFixture sql) : IDisposable
     // --- FR-009: no timing signal (T034b regression guard) ----------------
 
     [Fact]
+    [Trait("Category", "Timing")] // wall-clock; excludable from the gating run (P1-11)
     public async Task NonMemberAndUnknownId_HaveNoTimingDifference()
     {
         var (client, _) = await NewUserWithOrgAsync("timer", "Acme");
@@ -259,6 +260,52 @@ public sealed class CrossTenantAccessTests(SqlServerFixture sql) : IDisposable
             Math.Abs(a - b) <= tolerance,
             $"Timing diverged: non-member median {a:F2}ms vs unknown-id median {b:F2}ms " +
             $"(tolerance {tolerance:F2}ms) — a structural difference may have been introduced.");
+    }
+
+    // --- Principles V/VI: isolation holds under concurrent HTTP load --------
+
+    [Fact]
+    public async Task ConcurrentTwoTenantRequests_EachSeeOnlyTheirOwnOrg()
+    {
+        var (a, aOrg) = await NewUserWithOrgAsync("tenant-a", "Acme");
+        var (b, bOrg) = await NewUserWithOrgAsync("tenant-b", "Beta");
+
+        // Interleave many concurrent list requests from both tenants against the
+        // single scoped (non-pooled) context registration; every response must be
+        // scoped to its own caller with zero cross-tenant bleed — the property the
+        // EF-layer QueryFilterTests prove in the small, exercised here over HTTP.
+        async Task AssertScoped(HttpClient client, Guid ownOrg)
+        {
+            var list = await client.GetAsync("/api/v1/organizations");
+            list.EnsureSuccessStatusCode();
+            var page = await list.Content
+                .ReadFromJsonAsync<PagedResult<OrganizationSummary>>(TestJson.Options);
+            Assert.Equal(ownOrg, Assert.Single(page!.Items).Id);
+        }
+
+        var work = Enumerable.Range(0, 40)
+            .Select(i => i % 2 == 0 ? AssertScoped(a, aOrg.Id) : AssertScoped(b, bOrg.Id));
+        await Task.WhenAll(work);
+    }
+
+    // --- FR-010: malformed client input grants nothing ---------------------
+
+    [Fact]
+    public async Task GarbageOrganizationHeader_IsIgnored_AndFallsBackToOwnActiveOrg()
+    {
+        var (client, mine) = await NewUserWithOrgAsync("garbled", "Acme");
+
+        client.DefaultRequestHeaders.Add(
+            TenantResolutionMiddleware.OrganizationHeader, "not-a-guid");
+
+        // An unparseable header is not an error and confers nothing: the acting
+        // context is simply the caller's own verified active org (FR-010).
+        Assert.Equal(mine.Id, await AmbientTenantAsync(client));
+
+        var list = await client.GetAsync("/api/v1/organizations");
+        var page = await list.Content
+            .ReadFromJsonAsync<PagedResult<OrganizationSummary>>(TestJson.Options);
+        Assert.Equal(mine.Id, Assert.Single(page!.Items).Id);
     }
 
     // --- helpers ----------------------------------------------------------

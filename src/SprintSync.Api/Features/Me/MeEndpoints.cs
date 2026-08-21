@@ -23,6 +23,7 @@ public static class MeEndpoints
         })
         .WithTags("Me")
         .RequireAuthorization()
+        .Produces<MeResponse>(200)
         .WithName("GetMe");
 
         // PUT /me/active-organization — switch the acting organization
@@ -54,6 +55,8 @@ public static class MeEndpoints
         })
         .WithTags("Me")
         .RequireAuthorization()
+        .Produces<MeResponse>(200)
+        .Produces(404)
         .WithName("SetActiveOrganization");
 
         return group;

@@ -3,18 +3,18 @@
     Pre-deploy cost guard (constitution Principle 12, task T045).
 
 .DESCRIPTION
-    Synthesizes the infrastructure and refuses the deploy if anything in it
-    would bill while nobody is using the app. The rule this enforces is not
-    "keep costs low" -- it is "nothing idles billably", which is a property you
-    can actually check mechanically:
+    Refuses the deploy if anything in the synthesized infrastructure would bill
+    while nobody is using the app. Fail-closed: it also refuses if the resources
+    it is meant to vet are ABSENT, so it can never pass by having nothing to
+    check (P1-5).
 
-      * every Container App scales to zero (no minReplicas > 0)
-      * the SQL database uses the free serverless offer and auto-pauses
-      * no always-on resource (Redis, Service Bus, dedicated workload
-        profiles) appears at all
+      * a Container App is present and scales to zero (no minReplicas > 0)
+      * a SQL database is present, on the free serverless offer, and auto-pauses
+      * no always-on resource (Redis, Service Bus, dedicated workload profiles,
+        Cosmos, PostgreSQL flexible server, AKS) appears at all
 
-    Wired into `azd up` as a preprovision hook, so it runs whether or not
-    anyone remembers to.
+    Wired into `azd up` as a preprovision hook, so it runs whether or not anyone
+    remembers to.
 #>
 [CmdletBinding()]
 param(
@@ -26,7 +26,7 @@ $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path $InfraPath)) {
     Write-Host "No synthesized infrastructure at '$InfraPath'."
-    Write-Host "Run 'azd infra synth' first, then re-run this check."
+    Write-Host "Run 'azd infra gen' first, then re-run this check."
     exit 1
 }
 
@@ -37,19 +37,22 @@ if (-not $bicep) {
 }
 
 $failures = [System.Collections.Generic.List[string]]::new()
+$sawContainerApp = $false
+$sawZeroFloor = $false
+$sawSql = $false
 
 foreach ($file in $bicep) {
     $text = Get-Content -Path $file.FullName -Raw
     $relative = Resolve-Path -Relative $file.FullName
 
-    # 1. Scale-to-zero. Any explicit non-zero floor keeps a replica warm.
+    # Presence + scale-to-zero.
+    if ($text -match 'Microsoft\.App/containerApps') { $sawContainerApp = $true }
     foreach ($match in [regex]::Matches($text, 'minReplicas\s*:\s*(\d+)')) {
-        if ([int]$match.Groups[1].Value -ne 0) {
-            $failures.Add("$relative : minReplicas = $($match.Groups[1].Value) (must be 0)")
-        }
+        if ([int]$match.Groups[1].Value -eq 0) { $sawZeroFloor = $true }
+        else { $failures.Add("$relative : minReplicas = $($match.Groups[1].Value) (must be 0)") }
     }
 
-    # 2. Resource types that bill continuously by their nature.
+    # Resource types that bill continuously by their nature.
     $alwaysOn = @(
         'Microsoft.Cache/redis',
         'Microsoft.ServiceBus/namespaces',
@@ -63,24 +66,32 @@ foreach ($file in $bicep) {
         }
     }
 
-    # 3. Dedicated ACA workload profiles bill per-node regardless of traffic.
+    # Dedicated ACA workload profiles bill per-node regardless of traffic.
     if ($text -match "workloadProfileType\s*:\s*'(?!Consumption)") {
         $failures.Add("$relative : uses a non-Consumption workload profile")
     }
+
+    # The SQL database must actually be on the free serverless offer.
+    if ($text -match 'Microsoft\.Sql/servers/databases') {
+        $sawSql = $true
+        if ($text -notmatch 'useFreeLimit\s*:\s*true') {
+            $failures.Add("$relative : SQL database is not on the free limit (useFreeLimit != true)")
+        }
+        if ($text -notmatch "freeLimitExhaustionBehavior\s*:\s*'AutoPause'") {
+            $failures.Add("$relative : SQL database does not auto-pause when the free limit is spent")
+        }
+    }
 }
 
-# 4. The SQL database must actually be on the free serverless offer.
-$sqlFiles = $bicep | Where-Object { (Get-Content $_.FullName -Raw) -match 'Microsoft.Sql/servers/databases' }
-foreach ($file in $sqlFiles) {
-    $text = Get-Content -Path $file.FullName -Raw
-    $relative = Resolve-Path -Relative $file.FullName
-
-    if ($text -notmatch 'useFreeLimit\s*:\s*true') {
-        $failures.Add("$relative : SQL database is not on the free limit (useFreeLimit != true)")
-    }
-    if ($text -notmatch "freeLimitExhaustionBehavior\s*:\s*'AutoPause'") {
-        $failures.Add("$relative : SQL database does not auto-pause when the free limit is spent")
-    }
+# Fail-closed: rules verified against resources that are not present prove nothing.
+if (-not $sawContainerApp) {
+    $failures.Add('no Microsoft.App/containerApps resource found -- cannot confirm scale-to-zero')
+}
+elseif (-not $sawZeroFloor) {
+    $failures.Add('a container app is present but none declares minReplicas: 0')
+}
+if (-not $sawSql) {
+    $failures.Add('no Microsoft.Sql/servers/databases resource found -- cannot confirm the free serverless offer')
 }
 
 if ($failures.Count -gt 0) {
@@ -92,5 +103,5 @@ if ($failures.Count -gt 0) {
     exit 1
 }
 
-Write-Host 'Idle-cost check passed: scale-to-zero, SQL auto-pause, no always-on resources.' -ForegroundColor Green
+Write-Host 'Idle-cost check passed: container app scales to zero, SQL auto-pauses on the free limit, no always-on resources.' -ForegroundColor Green
 exit 0

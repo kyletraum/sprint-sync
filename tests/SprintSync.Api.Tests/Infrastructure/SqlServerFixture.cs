@@ -8,7 +8,11 @@ namespace SprintSync.Api.Tests.Infrastructure;
 /// </summary>
 public sealed class SqlServerFixture : IAsyncLifetime
 {
-    private readonly MsSqlContainer _container = new MsSqlBuilder().Build();
+    // Pin the engine so the harness's database is a declared, reproducible part
+    // of the test — not whatever the transitive default resolves to (P2-15).
+    private readonly MsSqlContainer _container = new MsSqlBuilder()
+        .WithImage("mcr.microsoft.com/mssql/server:2022-latest")
+        .Build();
 
     public string ConnectionString { get; private set; } = string.Empty;
 

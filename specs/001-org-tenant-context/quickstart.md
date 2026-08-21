@@ -68,9 +68,10 @@ manual steps.
 ## Deploy (optional, always-on idle-optimized)
 
 ```bash
-azd infra synth      # generate the Bicep BEFORE provisioning
+azd infra gen        # generate the Bicep BEFORE provisioning
 ./scripts/check-idle-cost.sh          # or: pwsh ./scripts/check-idle-cost.ps1
-azd up               # provision API+SQL (ACA/Azure SQL) and the SWA-hosted React app
+azd up               # provision API + SQL (ACA / Azure SQL). The React app is
+                     # deployed to Static Web Apps Free from CI, not azd (P1-4).
 ```
 
 ### The pre-deploy cost guard (T045, Principle 12)
@@ -99,16 +100,14 @@ A $1 monthly budget alerting at 50% actual, 100% actual and 100% forecast. The
 $1 is not an allowance — at this design's idle cost, crossing 50 cents already
 means something unexpected is running.
 
-### Known issue: `azd infra synth` and the Container Apps environment
+### Infrastructure generation
 
-On **Aspire 13.4.6**, `builder.AddAzureContainerAppEnvironment(...)` registers a
-second deployment target for the API on top of the one the SDK infers, and synth
-fails with `Sequence contains more than one matching element` before it emits the
-container-app Bicep. The SQL module still generates correctly, and its free-limit
-and auto-pause settings have been verified in the generated output.
-
-**Before the first deploy**, confirm `minReplicas: 0` reaches the synthesized
-container app — the cost guard checks it, but only once synth produces the file.
+`azd infra gen` succeeds: the Aspire AppHost is the only azd service (azure.yaml
+declares no sibling — that pairing was the earlier synth failure, now fixed).
+The generated Bicep places the API container app at `minReplicas: 0` and the SQL
+database on the free serverless offer with `AutoPause`. The cost guard passes on
+that output and fails closed when those resources are absent, so a
+misconfiguration cannot slip through as a green check.
 
 Idle cost target is approximately $0 (scale-to-zero + SQL auto-pause + SWA Free);
 only the container registry stands.

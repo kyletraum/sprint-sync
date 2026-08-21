@@ -42,6 +42,7 @@ public static class OrganizationEndpoints
         })
         .WithTags("Organizations")
         .RequireAuthorization()
+        .Produces<PagedResult<OrganizationSummary>>(200)
         .WithName("ListMyOrganizations");
 
         // GET /organizations/{organizationId} — hide-existence read (FR-008/009).
@@ -74,6 +75,8 @@ public static class OrganizationEndpoints
         })
         .WithTags("Organizations")
         .RequireAuthorization()
+        .Produces<OrganizationDetail>(200)
+        .Produces(404)
         .WithName("GetOrganization");
 
         // POST /organizations — create an org, become its Owner (FR-001/002/003).
@@ -125,6 +128,8 @@ public static class OrganizationEndpoints
         })
         .WithTags("Organizations")
         .RequireAuthorization()
+        .Produces<OrganizationSummary>(201)
+        .ProducesValidationProblem()
         .WithName("CreateOrganization");
 
         return group;

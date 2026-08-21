@@ -2,9 +2,11 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using SprintSync.Api.Data;
 
 namespace SprintSync.Api.Tests.Infrastructure;
 
@@ -24,6 +26,9 @@ public sealed class SprintSyncApiFactory(string connectionString) : WebApplicati
             services.AddAuthentication(TestAuthHandler.SchemeName)
                 .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
                     TestAuthHandler.SchemeName, _ => { });
+
+            // Test-only window onto the resolved ambient tenant (FR-010).
+            services.AddSingleton<IStartupFilter, TenantProbeStartupFilter>();
         });
     }
 
@@ -38,6 +43,16 @@ public sealed class SprintSyncApiFactory(string connectionString) : WebApplicati
         }
 
         return client;
+    }
+
+    /// <summary>
+    /// Direct database access for seeding states the API has no endpoint for
+    /// yet (adding a second member, revoking a membership).
+    /// </summary>
+    public async Task WithDbAsync(Func<AppDbContext, Task> action)
+    {
+        using var scope = Services.CreateScope();
+        await action(scope.ServiceProvider.GetRequiredService<AppDbContext>());
     }
 }
 

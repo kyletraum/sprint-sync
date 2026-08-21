@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using SprintSync.Api.Auth;
 using SprintSync.Api.Contracts;
 using SprintSync.Api.Data;
@@ -9,6 +10,72 @@ public static class OrganizationEndpoints
 {
     public static RouteGroupBuilder MapOrganizationEndpoints(this RouteGroupBuilder group)
     {
+        // GET /organizations — the caller's organizations (FR-005, SC-003).
+        // The sanctioned cross-organization read (Principle V carve-out): scoped
+        // by verified Membership, NOT by the ambient tenant, so it deliberately
+        // does not require the OrgMember policy — a user with no memberships
+        // gets an empty page rather than a denial.
+        group.MapGet("/organizations", async (
+            ICurrentUser currentUser, AppDbContext db, int? page, int? pageSize) =>
+        {
+            if (currentUser.User is not { } user)
+            {
+                return Results.Unauthorized();
+            }
+
+            var paging = PageRequest.From(page, pageSize);
+
+            var memberships = db.Memberships.Where(m => m.UserId == user.Id);
+            var totalCount = await memberships.CountAsync();
+
+            // Stable ordering so pages partition the set without overlap or gaps.
+            var items = await memberships
+                .OrderBy(m => m.Organization.Name)
+                .ThenBy(m => m.OrganizationId)
+                .Skip(paging.Skip)
+                .Take(paging.PageSize)
+                .Select(m => new OrganizationSummary(m.OrganizationId, m.Organization.Name, m.Role))
+                .ToListAsync();
+
+            return Results.Ok(new PagedResult<OrganizationSummary>(
+                items, paging.Page, paging.PageSize, totalCount));
+        })
+        .WithTags("Organizations")
+        .RequireAuthorization()
+        .WithName("ListMyOrganizations");
+
+        // GET /organizations/{organizationId} — hide-existence read (FR-008/009).
+        //
+        // One membership-gated query answers both "does it exist?" and "may you
+        // see it?". There is deliberately no prior existence lookup and no
+        // branch between the two failure modes: a non-member and an unknown id
+        // travel the identical path and produce the identical 404, so neither
+        // the response nor its latency reveals which case occurred (research R4).
+        group.MapGet("/organizations/{organizationId:guid}", async (
+            Guid organizationId, ICurrentUser currentUser, AppDbContext db) =>
+        {
+            if (currentUser.User is not { } user)
+            {
+                return Results.Unauthorized();
+            }
+
+            var detail = await db.Organizations
+                .Where(o => o.Id == organizationId
+                    && o.Memberships.Any(m => m.UserId == user.Id))
+                .Select(o => new OrganizationDetail(
+                    o.Id,
+                    o.Name,
+                    o.Memberships.First(m => m.UserId == user.Id).Role,
+                    o.Memberships.Count,
+                    o.CreatedAt))
+                .FirstOrDefaultAsync();
+
+            return detail is null ? HideExistence.NotFound() : Results.Ok(detail);
+        })
+        .WithTags("Organizations")
+        .RequireAuthorization()
+        .WithName("GetOrganization");
+
         // POST /organizations — create an org, become its Owner (FR-001/002/003).
         group.MapPost("/organizations", async (
             CreateOrganizationRequest request, ICurrentUser currentUser, AppDbContext db) =>

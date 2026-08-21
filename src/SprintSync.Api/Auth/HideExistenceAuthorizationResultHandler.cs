@@ -25,7 +25,9 @@ public sealed class HideExistenceAuthorizationResultHandler : IAuthorizationMidd
             && authorizeResult.AuthorizationFailure is { } failure
             && failure.FailedRequirements.OfType<OrgMemberRequirement>().Any())
         {
-            await Results.NotFound().ExecuteAsync(context);
+            // The same body the membership-gated handlers return, so a policy
+            // denial is indistinguishable from a miss (research R4).
+            await HideExistence.WriteAsync(context);
             return;
         }
 

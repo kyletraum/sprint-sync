@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi;
 using SprintSync.Api.Auth;
 using SprintSync.Api.Data;
 using SprintSync.Api.Features.Me;
@@ -16,7 +17,23 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 // OpenAPI document is a published deliverable (Principle III): /openapi/v1.json.
-builder.Services.AddOpenApi();
+// Its identity is pinned to contracts/openapi.yaml rather than left to the
+// assembly name, because the two are checked against each other (T046).
+builder.Services.AddOpenApi("v1", options =>
+{
+    options.AddDocumentTransformer((document, _, _) =>
+    {
+        document.Info = new OpenApiInfo
+        {
+            Title = "Sprint Sync API",
+            Version = "1.0",
+            Description =
+                "Public, versioned contract for Sprint Sync. The React web app and any "
+                + "third-party client consume exactly these endpoints (Principle I).",
+        };
+        return Task.CompletedTask;
+    });
+});
 
 // Persistence: scoped (NOT pooled) so the global query filter reads the correct
 // per-request tenant (research R2).
@@ -51,6 +68,14 @@ if (!app.Environment.IsProduction())
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
+
+    // Demo data is opt-in rather than "on in Development", so the integration
+    // suite — which also runs in Development — never inherits rows it did not
+    // create (T047).
+    if (app.Configuration.GetValue<bool>("DemoData:Enabled"))
+    {
+        await DemoSeeder.SeedAsync(db);
+    }
 }
 
 app.Run();

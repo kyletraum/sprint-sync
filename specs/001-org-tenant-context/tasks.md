@@ -196,6 +196,41 @@ API MVP; the API remains the independently testable increment.
 
 ---
 
+## Phase 9: Handoff Follow-Ups — Deploy Validation & Hardening
+
+**Source**: `.specify/handoffs/2026-08-21-org-tenant-committee-followups.md`
+(code-review committee, 5 rounds). Everything above shipped and is verified —
+56/56 backend integration tests on real SQL, 5/5 web tests, both guard scripts.
+This phase carries the work that **could not be verified in the build
+environment** (no live Azure deploy, no real Entra tenant, no CI runner) plus the
+refinements the committee marked optional.
+
+**Do not re-litigate** the decisions recorded in the handoff's "Decisions already
+made" section (scoped non-pooled DbContext, hide-existence 404, `X-Organization-Id`
+as a membership-verified soft hint, create-only JIT provisioning, the ~$5-8/mo
+idle floor).
+
+### Phase 9A: Buildable now (no live Azure required)
+
+- [ ] T050 [P] Guard migrate-on-startup against the cross-revision rollout window in `src/SprintSync.Api/Program.cs` — wrap the `MigrateAsync` call in a SQL `sp_getapplock`/`sp_releaseapplock` pair (session or transaction scoped, acquired inside the existing execution strategy) so two revisions cannot apply DDL concurrently; replace the CAVEAT comment at Program.cs:105-110 with what the lock now guarantees. Handoff item 3 (Round 5 P1-4).
+- [ ] T051 [P] Thread `CancellationToken` (`HttpContext.RequestAborted`) through every EF call in `src/SprintSync.Api/Auth/UserProvisioningMiddleware.cs`, `src/SprintSync.Api/Tenancy/TenantResolutionMiddleware.cs`, `src/SprintSync.Api/Features/Me/MeEndpoints.cs`, and `src/SprintSync.Api/Features/Organizations/OrganizationEndpoints.cs` (bind the token as a Minimal API parameter in the endpoints). Handoff item 5 (Round 5 P2-8).
+- [ ] T052 [P] Deepen the file-vs-served OpenAPI contract test in `tests/SprintSync.Api.Tests/Contract/OpenApiContractTests.cs` — beyond the current operation-set and response-body-property assertions, assert that each contracted operation's **declared response status codes** and its **request-body required fields** match `specs/001-org-tenant-context/contracts/openapi.yaml`. Handoff item 6 (Round 5 P2-9).
+- [ ] T053 [P] Rewrite the tenant global query filter in `src/SprintSync.Api/Data/AppDbContext.cs:120-133` from the `Expression.Constant(this)` reflection form to the idiomatic context-instance-member reference; `tests/SprintSync.Api.Tests/Isolation/QueryFilterTests.cs` must stay green (behaviour-preserving refactor only). Handoff item 7 (Round 5 P2-7).
+- [ ] T054 [P] **(OPTIONAL — reviewer: no change required)** Refresh the provisioned `DisplayName` from the token on repeat login in `src/SprintSync.Api/Auth/UserProvisioningMiddleware.cs`, guarded to write only when the value actually changed. Handoff item 8 (Round 5 P2-13). Skip unless the create-only JIT decision is deliberately revisited.
+
+### Phase 9B: Deploy-gated (require a real `azd up` / live Entra tenant / CI runner)
+
+- [ ] T055 On a real `azd up`, confirm the API container app provisions **and receives non-empty `AzureAd__*` environment values**; determine whether it deploys from `infra/main.bicep` or from the azd-applied module at `azd deploy`, then resolve `infra/api/api-containerapp.module.bicep` — which is currently unreachable from `main.bicep` (its five modules are api-identity, api-roles-sql, cae, cae-acr, sql) — by wiring it in or deleting it. **Do not hand-wire `main.bicep` blind**: it may conflict with azd's own deploy model. Handoff item 1 (Round 5 P0-1). **P0 — blocks T056.**
+- [ ] T056 After T055, extend `scripts/check-idle-cost.sh` and `scripts/check-idle-cost.ps1` to reject orphan `Microsoft.App/containerApps` modules that are not reachable from `infra/main.bicep`, so mere presence of a `.bicep` file under `infra/` can no longer satisfy the fail-closed `saw_containerapp`/`saw_zero_floor` checks. Keep both twins behaviourally identical. Handoff item 2 (Round 5 P1-3).
+- [ ] T057 Add ACA liveness/readiness probes targeting the already-exposed `/alive` (and `/health`) endpoints via `ConfigureInfrastructure` in `src/SprintSync.AppHost/`, and enable the stubbed Azure Monitor OTLP exporter in `src/SprintSync.ServiceDefaults/Extensions.cs:91-94` behind `APPLICATIONINSIGHTS_CONNECTION_STRING`; confirm traces actually arrive. **Verify against a real deploy** — a wrong probe port crash-loops the container. Handoff item 4 (Rounds 2 & 5).
+- [ ] T058 Run `.github/workflows/ci.yml` live on a real runner and perform a real `azd up`, then validate end-to-end: the cross-tenant attack suite (`tests/SprintSync.Api.Tests/Isolation/`) against the deployed API and an interactive Entra External ID sign-in through the web app. Record the outcome under the T048 validation record so the "Not validated" gap there is closed. Handoff item 9 (whole-session gap). **Principle IX evidence — gates any claim the feature is production-done.**
+
+**Checkpoint**: Phase 9A can complete and merge without Azure. Phase 9B closes out
+at the first real deploy; until then the feature is "verified in the build
+environment", not "verified in production".
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -205,6 +240,7 @@ API MVP; the API remains the independently testable increment.
 - **User Stories (Phases 3–6)**: all depend on Foundational. By priority: US1 → US2 → US4 → US3. US2/US4/US3 are independently testable and could be parallelized across developers once Foundational is done.
 - **Web UI (Phase 7)**: depends on the corresponding API endpoints existing (T040←US1, T041←US2, T042←US3).
 - **Polish (Phase 8)**: after the desired stories are complete.
+- **Handoff Follow-Ups (Phase 9)**: after Phase 8. **9A** (T050–T054) is unblocked and can be worked now; **9B** (T055–T058) is gated on a real Azure deploy / live Entra tenant / CI runner. T056 depends on T055.
 
 ### Critical path within Foundational
 
@@ -225,6 +261,7 @@ files marked [P] within a story can be built in parallel.
 - Foundational: T012, T015, T016, T017, T018, T019 in parallel after T008–T011; T013/T014 are sequential on the DbContext.
 - US4 tests T030 and T031 in parallel; US-level DTO tasks (T023/T024, T032, T036) in parallel with their story's test tasks.
 - Polish: T043, T044, T046, T047, T049 in parallel.
+- Phase 9A: T050, T051, T052, T053, T054 in parallel (Program.cs, middleware/endpoints, contract test, AppDbContext.cs, provisioning middleware — T051 and T054 both touch `UserProvisioningMiddleware.cs`, so sequence those two if T054 is taken up).
 
 ## Parallel Example: User Story 1
 
@@ -253,6 +290,14 @@ Demo-able.
 Foundational → US1 (create) → US2 (list) → US4 (isolation, the safety proof) →
 US3 (switch) → Web UI → Polish/deploy. Each API story is a tested increment that
 doesn't break the previous ones.
+
+### Handoff-driven closeout
+
+Phase 9 exists because a session boundary, not a scope change, left this work
+open. Work 9A first — it needs nothing this repo does not already have. Treat
+9B as the first-real-deploy checklist: T055 (does the API container app
+actually deploy, with AzureAd config?) is the P0 in the set, and T058 is the
+Principle IX evidence that closes the "Not validated" gap in T048's record.
 
 ### Constitution-critical ordering
 

@@ -17,11 +17,13 @@ hooks:
   preprovision:
     posix:
       shell: sh
-      run: ./scripts/check-idle-cost.sh
+      # Config guard (real Entra values) then cost guard — fail fast before any
+      # resource is created (P1-4, P1-5/T045).
+      run: ./scripts/check-azuread-config.sh && ./scripts/check-idle-cost.sh
       continueOnError: false
     windows:
       shell: pwsh
-      run: ./scripts/check-idle-cost.ps1
+      run: ./scripts/check-azuread-config.ps1 && ./scripts/check-idle-cost.ps1
       continueOnError: false
 
   # Runtime cost backstop: provision the $1 budget alert with the topology so the

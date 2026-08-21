@@ -72,6 +72,11 @@ app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
 
 // Versioned contract (Principle II). New versions get a new prefix.
+//
+// CONVENTION (P2-11): every future endpoint that reads or writes a
+// TenantScopedEntity MUST call .RequireAuthorization(AuthorizationPolicies.OrgMember)
+// so the ambient tenant is verified before the handler runs. Isolation is
+// structural (Principles V/VIII) — never a per-handler membership check.
 var v1 = app.MapGroup("/api/v1");
 v1.MapMeEndpoints();
 v1.MapOrganizationEndpoints();

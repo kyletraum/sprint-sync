@@ -18,7 +18,9 @@ export default defineConfig({
     },
   },
   test: {
-    pool: 'threads',
+    // forks (not threads): the worker-thread pool intermittently fails to start
+    // on some hosts; forks runs the suite reliably in local and CI environments.
+    pool: 'forks',
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],

@@ -147,11 +147,16 @@ components:
       name: page
       in: query
       required: false
+      description: 1-based page number. Values below 1 are coerced to 1, not rejected.
       schema: { type: integer, minimum: 1, default: 1 }
     PageSize:
       name: pageSize
       in: query
       required: false
+      description: >
+        Items per page. Values below 1 are coerced to the default (50); values
+        above the maximum are clamped to 100. Out-of-range input is coerced, not
+        rejected.
       schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
 
   responses:
@@ -199,7 +204,9 @@ components:
           type: string
           minLength: 1
           maxLength: 100
-          description: Non-empty, non-whitespace, ≤100 chars (FR-012).
+          description: >
+            Non-empty, non-whitespace, at most 100 UTF-16 code units (the length
+            unit the server enforces) (FR-012).
 
     SetActiveOrganizationRequest:
       type: object

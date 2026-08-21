@@ -35,12 +35,31 @@ export function useOrganizations(): OrganizationsState {
     setLoading(true);
     setError(null);
     try {
-      const [meResponse, page] = await Promise.all([api.getMe(), api.listOrganizations()]);
+      const [meResponse, firstPage] = await Promise.all([api.getMe(), api.listOrganizations(1)]);
       if (current !== requestId.current) {
         return;
       }
+
+      // Accumulate every page so a user in more than one page of organizations
+      // gets their whole list — and the switcher never renders a blank <option>
+      // for an active org that sits beyond page 1. This is the spec's explicit
+      // 'many organizations' edge case (P1-3).
+      const all = [...firstPage.items];
+      let page = 2;
+      while (all.length < firstPage.totalCount) {
+        const next = await api.listOrganizations(page);
+        if (current !== requestId.current) {
+          return;
+        }
+        if (next.items.length === 0) {
+          break; // defensive: never spin if the server returns an empty page
+        }
+        all.push(...next.items);
+        page++;
+      }
+
       setMe(meResponse);
-      setOrganizations(page.items);
+      setOrganizations(all);
     } catch (caught) {
       if (current !== requestId.current) {
         return;

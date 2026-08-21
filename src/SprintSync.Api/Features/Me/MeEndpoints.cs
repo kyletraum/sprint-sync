@@ -39,6 +39,16 @@ public static class MeEndpoints
                 return Results.Unauthorized();
             }
 
+            // A missing/empty id is a malformed client request (400), distinct
+            // from a well-formed id the caller isn't a member of (404, P2-7).
+            if (request.OrganizationId == Guid.Empty)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["organizationId"] = ["A non-empty organizationId is required."],
+                });
+            }
+
             var isMember = await db.Memberships.AnyAsync(m =>
                 m.UserId == user.Id && m.OrganizationId == request.OrganizationId);
 

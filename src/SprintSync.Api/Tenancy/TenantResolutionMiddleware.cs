@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using SprintSync.Api.Auth;
 using SprintSync.Api.Data;
 
@@ -21,7 +22,8 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next)
     public const string OrganizationHeader = "X-Organization-Id";
 
     public async Task InvokeAsync(
-        HttpContext context, AppDbContext db, ICurrentUser currentUser, ITenantContext tenant)
+        HttpContext context, AppDbContext db, ICurrentUser currentUser, ITenantContext tenant,
+        ILogger<TenantResolutionMiddleware> logger)
     {
         if (currentUser.User is { } user)
         {
@@ -54,8 +56,21 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next)
                         .ThenBy(m => m.OrganizationId)
                         .Select(m => (Guid?)m.OrganizationId)
                         .FirstOrDefaultAsync();
-                    user.ActiveOrganizationId = resolved;
-                    await db.SaveChangesAsync();
+
+                    // Persisting the repair is a best-effort OPTIMIZATION: the
+                    // resolved value is applied in-memory below regardless, so a
+                    // failed write must not 500 an otherwise-successful (idempotent)
+                    // GET — it simply re-heals on the next request (P1-2).
+                    try
+                    {
+                        user.ActiveOrganizationId = resolved;
+                        await db.SaveChangesAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogInformation(
+                            ex, "Active-org self-heal write failed; will retry on the next request.");
+                    }
                 }
             }
 

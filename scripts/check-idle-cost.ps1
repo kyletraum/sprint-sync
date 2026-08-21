@@ -81,6 +81,11 @@ foreach ($file in $bicep) {
             $failures.Add("$relative : SQL database does not auto-pause when the free limit is spent")
         }
     }
+
+    # Keep the registry on Basic so the ~$5/mo floor cannot silently grow.
+    if ($text -match 'Microsoft\.ContainerRegistry/registries' -and $text -match "name\s*:\s*'(Standard|Premium)'") {
+        $failures.Add("$relative : container registry is not on the Basic SKU")
+    }
 }
 
 # Fail-closed: rules verified against resources that are not present prove nothing.

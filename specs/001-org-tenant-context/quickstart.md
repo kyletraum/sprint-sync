@@ -89,6 +89,9 @@ azd env set BUDGET_ALERT_EMAILS '["you@example.com"]'   # optional; enables the 
 
 The AppHost passes the `AzureAd__*` values into the container app; the budget
 alert is provisioned by the postprovision hook when `BUDGET_ALERT_EMAILS` is set.
+A **preprovision guard** (`scripts/check-azuread-config`) refuses to provision if
+`AzureAd__ClientId` is unset or still a placeholder, so a misconfigured deploy
+fails before any resource is created — not as a crash-looping revision (P1-4).
 
 ### The pre-deploy cost guard (T045, Principle 12)
 
@@ -99,8 +102,9 @@ billably". It reads the synthesized Bicep and fails the deploy if:
 - the SQL database is not on the free serverless offer (`useFreeLimit: true`)
   with `freeLimitExhaustionBehavior: 'AutoPause'`,
 - an always-on resource type appears (Redis, Service Bus, Cosmos, PostgreSQL
-  flexible server, AKS), or
-- a non-Consumption ACA workload profile is used.
+  flexible server, AKS),
+- a non-Consumption ACA workload profile is used, or
+- the container registry is not on the Basic SKU (P1-5).
 
 It is wired into `azure.yaml` as an `azd` **preprovision hook**, so it runs on
 every `azd up` whether or not anyone remembers to run it by hand. Both scripts
@@ -108,13 +112,11 @@ take an optional path argument (default `./infra`).
 
 ### Cost backstop
 
-```bash
-az deployment group create -g <rg> -f infra/budget.bicep   -p alertEmails='["you@example.com"]'
-```
-
-A $1 monthly budget alerting at 50% actual, 100% actual and 100% forecast. The
-$1 is not an allowance — at this design's idle cost, crossing 50 cents already
-means something unexpected is running.
+A **$20/month budget** (alerting at 50% actual, 100% actual, 100% forecast) is
+provisioned automatically by the azd postprovision hook when `BUDGET_ALERT_EMAILS`
+is set (P1-6) — no manual `az deployment`. The ceiling sits above the unavoidable
+~$5-8/mo floor (below), so the 50% alert ($10) signals a genuine anomaly rather
+than the expected registry bill (P1-5).
 
 ### Infrastructure generation
 
@@ -125,5 +127,7 @@ database on the free serverless offer with `AutoPause`. The cost guard passes on
 that output and fails closed when those resources are absent, so a
 misconfiguration cannot slip through as a green check.
 
-Idle cost target is approximately $0 (scale-to-zero + SQL auto-pause + SWA Free);
-only the container registry stands.
+**Idle cost is a ~$5-8/month floor**, not $0: the container registry (ACR Basic)
+plus a little Log Analytics stand regardless, while the API scales to zero, SQL
+auto-pauses, and the SPA sits on Static Web Apps Free. The cost guard keeps ACR on
+the Basic SKU so that floor cannot silently grow (P1-5).

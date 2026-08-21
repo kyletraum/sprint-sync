@@ -65,6 +65,13 @@ for file in $BICEP_FILES; do
     grep -qE "freeLimitExhaustionBehavior[[:space:]]*:[[:space:]]*'AutoPause'" "$file" ||
       fail "$file : SQL database does not auto-pause when the free limit is spent"
   fi
+
+  # The registry is an unavoidable ~$5/mo floor; keep it on Basic so that floor
+  # cannot silently grow into Standard/Premium.
+  if grep -qF 'Microsoft.ContainerRegistry/registries' "$file" &&
+     grep -qE "name:[[:space:]]*'(Standard|Premium)'" "$file"; then
+    fail "$file : container registry is not on the Basic SKU"
+  fi
 done
 
 # Fail-closed: rules verified against resources that are not present prove nothing.

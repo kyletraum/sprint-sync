@@ -75,6 +75,33 @@ public sealed class ActiveOrganizationTests(SqlServerFixture sql) : IDisposable
         Assert.Equal(mine.Id, await ActiveOrgAsync(client));
     }
 
+    // --- P2-7: a malformed body is a 400, not a 404/500 -------------------
+
+    [Fact]
+    public async Task Switch_WithEmptyGuid_Returns400_ProblemDetails()
+    {
+        var client = _factory.CreateClientFor($"user-{Guid.NewGuid()}");
+        await CreateOrgAsync(client, "Acme");
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/me/active-organization", new { organizationId = Guid.Empty });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task Switch_WithEmptyBody_Returns400()
+    {
+        var client = _factory.CreateClientFor($"user-{Guid.NewGuid()}");
+
+        // {} binds organizationId to Guid.Empty -> the same malformed-body 400.
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/me/active-organization", new { });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     // --- FR-014: a persisted selection that stopped being valid ------------
 
     [Fact]

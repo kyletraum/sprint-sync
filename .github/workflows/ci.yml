@@ -29,7 +29,7 @@ jobs:
           -c Release --no-build --filter "Category!=Timing"
 
   web:
-    name: Web typecheck & build
+    name: Web lint, format, test & build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,6 +42,11 @@ jobs:
           cache: npm
           cache-dependency-path: web/sprint-sync-web/package-lock.json
       - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      # Runs the vitest suite — including the FR-009 hide-existence UI assertion —
+      # so a UI enumeration-oracle regression can't land green (P0-1).
+      - run: npm run test
       - run: npm run build
 
   cost-guard:

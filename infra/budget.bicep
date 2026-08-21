@@ -5,9 +5,12 @@
 // Web Apps Free. This budget is what catches the case where that reasoning is
 // wrong — a misconfiguration, an accidental always-on resource, a runaway loop.
 //
-// $1 is deliberately not a spending allowance. It is the smallest amount that
-// still proves something unexpected is running, which is why the first alert
-// fires at 50% of it.
+// The design's only unavoidable idle cost is the container registry (ACR Basic,
+// ~$5/mo) plus a little Log Analytics — everything else scales to zero or
+// auto-pauses. So "idle ~= $0" is really "~$5-8/mo floor". The ceiling sits ABOVE
+// that known floor so the 50% alert flags a GENUINE anomaly (an accidental
+// always-on resource), rather than firing every month on the expected registry
+// bill (P1-5).
 //
 // Provisioned automatically by the azd postprovision hook (azure.yaml) when
 // BUDGET_ALERT_EMAILS is set — no manual step (P1-6). To set it:
@@ -18,8 +21,8 @@ targetScope = 'resourceGroup'
 @description('Name of the budget resource.')
 param budgetName string = 'sprint-sync-idle-cost-backstop'
 
-@description('Monthly budget ceiling, in the billing currency. Kept at $1 on purpose.')
-param amount int = 1
+@description('Monthly budget ceiling. Set above the ~$5-8/mo ACR Basic + Log Analytics floor so the 50% alert flags genuine anomalies, not the expected registry bill.')
+param amount int = 20
 
 @description('Addresses notified when a threshold is crossed.')
 param alertEmails array

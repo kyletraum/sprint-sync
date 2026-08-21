@@ -25,6 +25,10 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next)
         HttpContext context, AppDbContext db, ICurrentUser currentUser, ITenantContext tenant,
         ILogger<TenantResolutionMiddleware> logger)
     {
+        // Every read below is on the request's critical path; if the caller has
+        // hung up there is nothing left to resolve a tenant for (T051).
+        var cancellationToken = context.RequestAborted;
+
         if (currentUser.User is { } user)
         {
             Guid? resolved = null;
@@ -35,12 +39,12 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next)
             // consistently, so the header never nukes the caller's own context and
             // never grants a non-member org (P2-9).
             if (TryGetHeaderOrg(context, out var headerOrg)
-                && await IsMemberAsync(db, user.Id, headerOrg))
+                && await IsMemberAsync(db, user.Id, headerOrg, cancellationToken))
             {
                 resolved = headerOrg;
             }
             else if (user.ActiveOrganizationId is { } activeOrg
-                && await IsMemberAsync(db, user.Id, activeOrg))
+                && await IsMemberAsync(db, user.Id, activeOrg, cancellationToken))
             {
                 // A still-valid persisted selection.
                 resolved = activeOrg;
@@ -57,7 +61,7 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next)
                     .OrderBy(m => m.Organization.Name)
                     .ThenBy(m => m.OrganizationId)
                     .Select(m => (Guid?)m.OrganizationId)
-                    .FirstOrDefaultAsync();
+                    .FirstOrDefaultAsync(cancellationToken);
 
                 // Persisting the repair is a best-effort OPTIMIZATION: the resolved
                 // value is applied in-memory below regardless, so a failed write
@@ -76,7 +80,7 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next)
                     try
                     {
                         user.ActiveOrganizationId = resolved;
-                        await db.SaveChangesAsync();
+                        await db.SaveChangesAsync(cancellationToken);
                     }
                     catch (DbUpdateException ex)
                     {
@@ -99,6 +103,8 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next)
         return !string.IsNullOrEmpty(value) && Guid.TryParse(value, out organizationId);
     }
 
-    private static Task<bool> IsMemberAsync(AppDbContext db, Guid userId, Guid organizationId) =>
-        db.Memberships.AnyAsync(m => m.UserId == userId && m.OrganizationId == organizationId);
+    private static Task<bool> IsMemberAsync(
+        AppDbContext db, Guid userId, Guid organizationId, CancellationToken cancellationToken) =>
+        db.Memberships.AnyAsync(
+            m => m.UserId == userId && m.OrganizationId == organizationId, cancellationToken);
 }

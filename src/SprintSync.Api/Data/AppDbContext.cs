@@ -1,4 +1,4 @@
-using System.Linq.Expressions;
+using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using SprintSync.Api.Data.Entities;
 using SprintSync.Api.Tenancy;
@@ -117,20 +117,38 @@ public class AppDbContext : DbContext
         // subclass. None exist in this slice; this is the seam future work-data
         // entities inherit (research R2). Membership carries OrganizationId but
         // is NOT a TenantScopedEntity, so it is deliberately unfiltered.
-        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        //
+        // Materialized first: the loop body adds filters to the model it is
+        // walking.
+        var scopedTypes = modelBuilder.Model.GetEntityTypes()
+            .Where(entityType => typeof(TenantScopedEntity).IsAssignableFrom(entityType.ClrType))
+            .Select(entityType => entityType.ClrType)
+            .ToList();
+
+        foreach (var clrType in scopedTypes)
         {
-            if (typeof(TenantScopedEntity).IsAssignableFrom(entityType.ClrType))
-            {
-                var e = Expression.Parameter(entityType.ClrType, "e");
-                // e.OrganizationId == this.CurrentOrganizationId  (no tenant => no rows)
-                var orgId = Expression.Convert(
-                    Expression.Property(e, nameof(TenantScopedEntity.OrganizationId)),
-                    typeof(Guid?));
-                var current = Expression.Property(
-                    Expression.Constant(this), nameof(CurrentOrganizationId));
-                var body = Expression.Equal(orgId, current);
-                modelBuilder.Entity(entityType.ClrType).HasQueryFilter(Expression.Lambda(body, e));
-            }
+            // Generic dispatch only — the predicate itself is the ordinary C#
+            // lambda in ApplyTenantFilter, not a hand-built expression tree.
+            ApplyTenantFilterMethod.MakeGenericMethod(clrType).Invoke(this, [modelBuilder]);
         }
     }
+
+    private static readonly MethodInfo ApplyTenantFilterMethod =
+        typeof(AppDbContext).GetMethod(
+            nameof(ApplyTenantFilter), BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+    /// <summary>
+    /// The tenant filter for one <see cref="TenantScopedEntity"/> subclass:
+    /// <c>e.OrganizationId == CurrentOrganizationId</c>, with no ambient tenant
+    /// therefore matching no rows (fail closed).
+    ///
+    /// <see cref="CurrentOrganizationId"/> is read off the context instance —
+    /// EF Core's documented dynamic-filter pattern, and the reason the filter
+    /// re-evaluates per context instance instead of baking the first request's
+    /// organization into the cached model. QueryFilterTests holds that property.
+    /// </summary>
+    private void ApplyTenantFilter<TEntity>(ModelBuilder modelBuilder)
+        where TEntity : TenantScopedEntity =>
+        modelBuilder.Entity<TEntity>()
+            .HasQueryFilter(e => e.OrganizationId == CurrentOrganizationId);
 }

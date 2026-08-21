@@ -102,22 +102,19 @@ if (app.Configuration.GetValue<bool>("TestEndpoints:Enabled"))
 // Aspire AppHost sets it for the deployed API so the schema exists on first
 // request (P0-2).
 //
-// CAVEAT (P1-4): MaxReplicas = 1 prevents a race WITHIN one revision, but a
-// rolling update (Single revision mode) can briefly run the new revision's
-// MigrateAsync while the old revision is still live — a cross-revision window
-// where two processes may apply DDL concurrently. Low-probability at demo scale,
-// and transient faults are retried by EnableRetryOnFailure; a hardened deploy
-// would run migrations as a one-shot pre-deploy step or under a SQL app-lock.
+// CONCURRENCY (T050): MaxReplicas = 1 rules out a race WITHIN one revision, and
+// StartupMigrator takes a session-scoped SQL application lock around MigrateAsync
+// to rule out the cross-revision one — a rolling update (Single revision mode)
+// can otherwise start the new revision's migration while the old revision is
+// still live. A second process now waits for the first instead of applying DDL
+// alongside it. Transient faults remain retried by the execution strategy.
 var migrateOnStartup = !app.Environment.IsProduction()
     || app.Configuration.GetValue<bool>("Database:MigrateOnStartup");
 if (migrateOnStartup)
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    // Run migration through the retrying execution strategy so the SQL auto-pause
-    // resume window is retried, not crash-looped on (P1-2).
-    var strategy = db.Database.CreateExecutionStrategy();
-    await strategy.ExecuteAsync(() => db.Database.MigrateAsync());
+    await StartupMigrator.MigrateAsync(db, app.Logger);
 
     // Demo data is opt-in rather than "on in Development", so the integration
     // suite — which also runs in Development — never inherits rows it did not

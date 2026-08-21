@@ -3,7 +3,7 @@ id: 2026-08-21-org-tenant-committee-followups
 created: 2026-08-21
 feature: 001-org-tenant-context
 branch: 001-org-tenant-context
-status: open
+status: consumed
 source: code-review committee (SWE / Test Automation / QA / DevOps + broker), 5 rounds
 consume_in: [tasks, implement]
 ---
@@ -61,4 +61,44 @@ first real deploy.
 
 ## Consumption log
 
-(none yet — this handoff is open)
+### 2026-08-21 — consumed by `/speckit-tasks`
+
+All 9 outstanding items were folded into
+`specs/001-org-tenant-context/tasks.md` as **Phase 9: Handoff Follow-Ups —
+Deploy Validation & Hardening**, split into 9A (buildable now) and 9B
+(deploy-gated). Nothing was dropped. Mapping:
+
+| Handoff item | Task | Phase |
+|---|---|---|
+| 3 — migrate-on-startup app-lock | T050 | 9A |
+| 5 — thread `CancellationToken` | T051 | 9A |
+| 6 — deepen OpenAPI contract test | T052 | 9A |
+| 7 — idiomatic query-filter lambda | T053 | 9A |
+| 8 — refresh `DisplayName` on repeat login | T054 (kept, marked OPTIONAL) | 9A |
+| 1 — real `azd up`, AzureAd env, orphan container-app module | T055 (P0) | 9B |
+| 2 — cost guard rejects unreachable containerApps modules | T056 (after T055) | 9B |
+| 4 — ACA `/alive` probe + Azure Monitor OTLP export | T057 | 9B |
+| 9 — live CI + real deploy + e2e attack/sign-in validation | T058 | 9B |
+
+State confirmed while consuming (so the tasks name real code, not guesses):
+
+- `infra/api/api-containerapp.module.bicep` is indeed **unreachable** from
+  `infra/main.bicep` (which wires only api-identity, api-roles-sql, cae,
+  cae-acr, sql) — item 1's premise holds.
+- `scripts/check-idle-cost.sh` scans every `*.bicep` under `infra/` with no
+  reachability test, so the orphan file currently satisfies its fail-closed
+  `saw_containerapp` / `saw_zero_floor` checks — item 2's premise holds.
+- `Program.cs:105-110` still carries the cross-revision CAVEAT comment; the
+  `MigrateAsync` call runs under the execution strategy but no app-lock.
+- `CancellationToken` appears in only 2 places under `src/` (DemoSeeder,
+  AppDbContext override) — no middleware or endpoint threading yet.
+- `AppDbContext.cs:120-133` still builds the filter via
+  `Expression.Constant(this)` reflection.
+- The Azure Monitor exporter in `ServiceDefaults/Extensions.cs:91-94` is still
+  commented out; `/alive` and `/health` are exposed but no ACA probe targets them.
+
+The "Decisions already made" section was carried into the Phase 9 preamble as
+an explicit do-not-re-litigate note.
+
+Follow-up: 9B stays open work in `tasks.md`, not in a handoff — it is now
+task-shaped and tracked there.

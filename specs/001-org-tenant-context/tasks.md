@@ -218,31 +218,42 @@ idle floor).
 - [x] T053 [P] Rewrite the tenant global query filter in `src/SprintSync.Api/Data/AppDbContext.cs:120-133` from the `Expression.Constant(this)` reflection form to the idiomatic context-instance-member reference; `tests/SprintSync.Api.Tests/Isolation/QueryFilterTests.cs` must stay green (behaviour-preserving refactor only). Handoff item 7 (Round 5 P2-7).
 - [ ] T054 [P] **(OPTIONAL — reviewer: no change required; NOT taken up, see record below)** Refresh the provisioned `DisplayName` from the token on repeat login in `src/SprintSync.Api/Auth/UserProvisioningMiddleware.cs`, guarded to write only when the value actually changed. Handoff item 8 (Round 5 P2-13). Skip unless the create-only JIT decision is deliberately revisited.
 
-> **Phase 9A validation record**: T050–T053 are code-complete and were written
-> against the current tree (each premise re-verified before editing). **They have
-> NOT been compiled or tested.** This session's environment has no .NET SDK and no
-> Docker: the SDK download host `builds.dotnet.microsoft.com` is refused by the
-> egress policy (403 at the agent proxy), and without Docker the Testcontainers
-> SQL suite cannot run at all. `.github/workflows/ci.yml` is therefore the
-> verification gate for this batch — build, the 56-test integration suite, the web
-> job and the cost guard all run there. Treat Phase 9A as unverified until that CI
-> run is green.
+> **Phase 9A validation record**: T050–T053 are complete and **verified green in
+> CI** — PR #3, workflow run 32537061874, commit `21de171`:
 >
-> Two changes carry the most risk if a premise is wrong:
-> - **T053** touches the isolation spine. `QueryFilterTests` — specifically
+> - `Build succeeded. 15 Warning(s) 0 Error(s)` (Release, .NET 10).
+> - `Passed! - Failed: 0, Passed: 57, Skipped: 0, Total: 57` against real SQL
+>   (Testcontainers). 57 = the 56 local baseline, less the excluded
+>   `Category=Timing` test, plus the two new contract tests from T052 — so both
+>   new assertions genuinely executed rather than being silently uncollected.
+> - Web job green (5/5 vitest, tsc + vite build), idle-cost guard green.
+>
+> What that run settles, per change:
+> - **T050** — the `sp_getapplock` path runs on every `WebApplicationFactory`
+>   boot in the suite (`Development` ⇒ migrate-on-startup), so the lock was
+>   acquired and released against real SQL Server dozens of times.
+> - **T052** — the two-way status-code equality holds: the `.Produces(401)` /
+>   `.ProducesValidationProblem()` declarations added to the endpoints match the
+>   contract exactly, and ASP.NET Core injected no status codes of its own.
+> - **T053** — `QueryFilterTests` passed, including
 >   `Filter_IsReEvaluatedPerContextInstance` and
->   `Filter_SurvivesTenantChangeWithinOneContext` — is what proves the refactor
->   preserved per-instance re-evaluation. If CI cannot be run, revert T053 first:
->   it is a pure style change with no functional benefit.
-> - **T052** asserts two-way equality between the contract file's declared response
->   status codes and the served document's. The endpoints were given the matching
->   `.Produces(401)` / `.ProducesValidationProblem()` declarations to make that hold.
->   If ASP.NET Core injects additional status codes of its own, this test is where
->   it will surface — a one-line allowance, not a design problem.
+>   `Filter_SurvivesTenantChangeWithinOneContext`, so the idiomatic
+>   context-instance-member lambda preserves per-instance re-evaluation. The
+>   revert-first advice that stood here before CI ran is withdrawn.
+>
+> The code was authored in a session with no .NET SDK and no Docker (the SDK
+> host is refused by egress policy), so CI was its first compile. That is a
+> statement about how it was produced, not about its current status.
 >
 > **T054 was deliberately not taken up.** The handoff records create-only JIT
 > provisioning as a settled decision and the reviewer marked the item "no change
 > required"; implementing it would reopen a decision nobody asked to revisit.
+>
+> **Known lint gap (not introduced here, not fixed here):** the build emits
+> `EnableGenerateDocumentationFile` warnings — `.editorconfig` sets IDE0005
+> (unused usings) to `error`, but `Directory.Build.props` sets
+> `GenerateDocumentationFile=false`, and IDE0005 does not run on build without
+> it. That rule has therefore never been enforced. Worth its own task.
 
 ### Phase 9B: Deploy-gated (require a real `azd up` / live Entra tenant / CI runner)
 
@@ -250,6 +261,13 @@ idle floor).
 - [ ] T056 After T055, extend `scripts/check-idle-cost.sh` and `scripts/check-idle-cost.ps1` to reject orphan `Microsoft.App/containerApps` modules that are not reachable from `infra/main.bicep`, so mere presence of a `.bicep` file under `infra/` can no longer satisfy the fail-closed `saw_containerapp`/`saw_zero_floor` checks. Keep both twins behaviourally identical. Handoff item 2 (Round 5 P1-3).
 - [ ] T057 Add ACA liveness/readiness probes targeting the already-exposed `/alive` (and `/health`) endpoints via `ConfigureInfrastructure` in `src/SprintSync.AppHost/`, and enable the stubbed Azure Monitor OTLP exporter in `src/SprintSync.ServiceDefaults/Extensions.cs:91-94` behind `APPLICATIONINSIGHTS_CONNECTION_STRING`; confirm traces actually arrive. **Verify against a real deploy** — a wrong probe port crash-loops the container. Handoff item 4 (Rounds 2 & 5).
 - [ ] T058 Run `.github/workflows/ci.yml` live on a real runner and perform a real `azd up`, then validate end-to-end: the cross-tenant attack suite (`tests/SprintSync.Api.Tests/Isolation/`) against the deployed API and an interactive Entra External ID sign-in through the web app. Record the outcome under the T048 validation record so the "Not validated" gap there is closed. Handoff item 9 (whole-session gap). **Principle IX evidence — gates any claim the feature is production-done.**
+
+> **T058 partial**: the "run CI live" half is **done** — workflow run 32537061874
+> on PR #3 was the first live execution of `.github/workflows/ci.yml`, and all
+> four jobs (backend, web, idle-cost guard, infra drift) ran and passed. Job logs
+> were read to confirm the jobs do real work rather than passing vacuously. Still
+> outstanding: the real `azd up`, the attack suite against a deployed API, and an
+> interactive Entra External ID sign-in.
 
 
 **Checkpoint**: Phase 9A can complete and merge without Azure. Phase 9B closes out

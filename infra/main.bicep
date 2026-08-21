@@ -12,6 +12,10 @@ param location string
 @description('Id of the user or app to assign application roles')
 param principalId string = ''
 
+param AzureAdAudience string
+param AzureAdClientId string
+param AzureAdInstance string
+param AzureAdTenantId string
 
 var tags = {
   'azd-env-name': environmentName

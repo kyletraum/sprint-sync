@@ -61,8 +61,13 @@ jobs:
         run: ./scripts/check-idle-cost.sh ./infra
 
   infra-drift:
-    name: Infra drift check (non-gating)
+    name: Infra drift check (advisory)
     runs-on: ubuntu-latest
+    # Advisory, not gating: `azd infra gen` output varies across azd/Aspire
+    # versions, so committed infra/ is the source of truth for deploy and this job
+    # only flags when it should be regenerated. azd is pinned to the version that
+    # generated committed infra so the diff is meaningful (P2-6); Aspire is pinned
+    # via the AppHost SDK (13.4.6).
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -70,6 +75,8 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - uses: Azure/setup-azd@v2
+        with:
+          version: 1.19.0
       - name: Regenerate infra and diff against what's committed
         run: |
           azd env new ci --no-prompt || true

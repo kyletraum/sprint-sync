@@ -23,14 +23,17 @@ public static class AuthenticationSetup
         // see the deploy section of quickstart.md (P0-1).
         if (!environment.IsDevelopment())
         {
-            var clientId = azureAd["ClientId"];
-            if (string.IsNullOrWhiteSpace(clientId)
-                || clientId.Contains("REPLACE", StringComparison.OrdinalIgnoreCase))
+            foreach (var key in new[] { "Instance", "TenantId", "ClientId", "Audience" })
             {
-                throw new InvalidOperationException(
-                    "AzureAd is not configured. Set AzureAd__Instance/TenantId/ClientId/Audience "
-                    + "(e.g. `azd env set`) before running outside Development — otherwise "
-                    + "authentication binds to placeholders and every request 401s.");
+                var value = azureAd[key];
+                if (string.IsNullOrWhiteSpace(value)
+                    || value.Contains("REPLACE", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        $"AzureAd:{key} is not configured. Set all of AzureAd__Instance/TenantId/"
+                        + "ClientId/Audience (e.g. `azd env set`) before running outside Development "
+                        + "— otherwise authentication binds to placeholders and requests fail (P1-5).");
+                }
             }
         }
 

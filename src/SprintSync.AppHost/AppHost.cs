@@ -48,6 +48,16 @@ sql.ConfigureInfrastructure(infrastructure =>
 
 var db = sql.AddDatabase("sprintsync");
 
+// Entra External ID config as azd-sourced parameters (P0-1). At publish these
+// become real Bicep parameters wired to the container app's env and resolved
+// from azd env at provision time — NOT baked as empty literals. Locally they
+// default to empty (Development skips the auth fail-fast guard). For deploy:
+//   azd env set AZUREADINSTANCE / AZUREADTENANTID / AZUREADCLIENTID / AZUREADAUDIENCE
+var azureAdInstance = builder.AddParameter("AzureAdInstance");
+var azureAdTenantId = builder.AddParameter("AzureAdTenantId");
+var azureAdClientId = builder.AddParameter("AzureAdClientId");
+var azureAdAudience = builder.AddParameter("AzureAdAudience");
+
 var api = builder.AddProject<Projects.SprintSync_Api>("api")
     .WithReference(db)
     .WaitFor(db)
@@ -57,14 +67,13 @@ var api = builder.AddProject<Projects.SprintSync_Api>("api")
     .WithEnvironment("Database__MigrateOnStartup", "true")
     // Deterministic demo cast.
     .WithEnvironment("DemoData__Enabled", "true")
-    // Entra External ID config flows from the AppHost configuration (populated by
-    // `azd env set AzureAd__* ...`) into the deployed container app, so cloud auth
-    // uses real values instead of the appsettings placeholders (P0-1). The API
-    // fail-fast guard refuses to start if these are missing in Production.
-    .WithEnvironment("AzureAd__Instance", builder.Configuration["AzureAd:Instance"] ?? "")
-    .WithEnvironment("AzureAd__TenantId", builder.Configuration["AzureAd:TenantId"] ?? "")
-    .WithEnvironment("AzureAd__ClientId", builder.Configuration["AzureAd:ClientId"] ?? "")
-    .WithEnvironment("AzureAd__Audience", builder.Configuration["AzureAd:Audience"] ?? "");
+    // Entra External ID config from parameters, so the deployed container app
+    // receives real azd-sourced values — never empty baked literals (P0-1). The
+    // API fail-fast guard refuses to start if these are missing in Production.
+    .WithEnvironment("AzureAd__Instance", azureAdInstance)
+    .WithEnvironment("AzureAd__TenantId", azureAdTenantId)
+    .WithEnvironment("AzureAd__ClientId", azureAdClientId)
+    .WithEnvironment("AzureAd__Audience", azureAdAudience);
 
 api.PublishAsAzureContainerApp((_, app) =>
 {

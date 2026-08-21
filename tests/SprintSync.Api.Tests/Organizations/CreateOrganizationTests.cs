@@ -86,6 +86,23 @@ public sealed class CreateOrganizationTests(SqlServerFixture sql) : IDisposable
     }
 
     [Fact]
+    public async Task Create_NameLength_CountsUtf16CodeUnits_NotCodePoints()
+    {
+        var client = _factory.CreateClientFor($"user-{Guid.NewGuid()}");
+
+        // Each astral-plane emoji is a surrogate pair = 2 UTF-16 code units. 50 of
+        // them = 100 code units -> accepted; 51 = 102 -> rejected. Pins the
+        // documented "≤100 UTF-16 code units" contract as a tested decision (P2-11).
+        var fifty = string.Concat(Enumerable.Repeat("\U0001F600", 50));
+        var ok = await client.PostAsJsonAsync("/api/v1/organizations", new { name = fifty });
+        Assert.Equal(HttpStatusCode.Created, ok.StatusCode);
+
+        var fiftyOne = string.Concat(Enumerable.Repeat("\U0001F600", 51));
+        var rejected = await client.PostAsJsonAsync("/api/v1/organizations", new { name = fiftyOne });
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+    }
+
+    [Fact]
     public async Task Create_DuplicateName_YieldsTwoDistinctOrganizations()
     {
         // Names are for human recognition, not identity (spec assumption) — two

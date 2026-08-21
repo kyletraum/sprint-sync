@@ -39,36 +39,42 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next)
             {
                 resolved = headerOrg;
             }
-            else if (user.ActiveOrganizationId is { } activeOrg)
+            else if (user.ActiveOrganizationId is { } activeOrg
+                && await IsMemberAsync(db, user.Id, activeOrg))
             {
-                if (await IsMemberAsync(db, user.Id, activeOrg))
-                {
-                    resolved = activeOrg;
-                }
-                else
-                {
-                    // Stale/invalid persisted selection — fall back and self-heal.
-                    // Ordered (name, then id) to mirror the list endpoint so the
-                    // fallback is deterministic and reproducible (P2-13).
-                    resolved = await db.Memberships
-                        .Where(m => m.UserId == user.Id)
-                        .OrderBy(m => m.Organization.Name)
-                        .ThenBy(m => m.OrganizationId)
-                        .Select(m => (Guid?)m.OrganizationId)
-                        .FirstOrDefaultAsync();
+                // A still-valid persisted selection.
+                resolved = activeOrg;
+            }
+            else
+            {
+                // No usable selection: the persisted active org is stale/invalid,
+                // OR it is null while the user does belong to organizations (a
+                // future invite/join flow). Fall back to the first membership by a
+                // stable (name, id) order and self-heal the stored value —
+                // symmetric across both cases (P2-7, P2-13).
+                resolved = await db.Memberships
+                    .Where(m => m.UserId == user.Id)
+                    .OrderBy(m => m.Organization.Name)
+                    .ThenBy(m => m.OrganizationId)
+                    .Select(m => (Guid?)m.OrganizationId)
+                    .FirstOrDefaultAsync();
 
-                    // Persisting the repair is a best-effort OPTIMIZATION: the
-                    // resolved value is applied in-memory below regardless, so a
-                    // failed write must not 500 an otherwise-successful (idempotent)
-                    // GET — it simply re-heals on the next request (P1-2).
+                // Persisting the repair is a best-effort OPTIMIZATION: the resolved
+                // value is applied in-memory below regardless, so a failed write
+                // must not 500 an otherwise-successful (idempotent) GET — it re-heals
+                // next request (P1-2). Narrowed to DB faults and raised to Warning so
+                // a persistent failure is observable, not silent (P2-8); skipped when
+                // the value is unchanged.
+                if (user.ActiveOrganizationId != resolved)
+                {
                     try
                     {
                         user.ActiveOrganizationId = resolved;
                         await db.SaveChangesAsync();
                     }
-                    catch (Exception ex)
+                    catch (DbUpdateException ex)
                     {
-                        logger.LogInformation(
+                        logger.LogWarning(
                             ex, "Active-org self-heal write failed; will retry on the next request.");
                     }
                 }

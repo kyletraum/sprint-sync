@@ -1,24 +1,26 @@
 #!/bin/sh
-# Pre-deploy config guard (P1-4). Refuses to provision without real Entra
-# (AzureAd) values, so the API never deploys as a crash-looping revision — it
-# mirrors, at deploy time, the runtime fail-fast guard in AuthenticationSetup.
-# The values come from azd env: `azd env set AzureAd__ClientId <...>` etc.
+# Pre-deploy config guard (P1-4/P1-5). Refuses to provision unless ALL FOUR Entra
+# (AzureAd) values are set and placeholder-free, so the API never deploys as a
+# crash-looping revision and a half-configured tenant (e.g. TenantId still a
+# placeholder) is caught before the revision goes live. These are the azd env
+# values that feed the container app's AzureAd__* env via Bicep parameters.
 
 set -eu
 
-client_id="${AzureAd__ClientId:-}"
+missing=""
+for var in AZURE_AZURE_AD_INSTANCE AZURE_AZURE_AD_TENANT_ID AZURE_AZURE_AD_CLIENT_ID AZURE_AZURE_AD_AUDIENCE; do
+  eval "val=\${$var:-}"
+  case "$val" in
+    "") missing="$missing $var" ;;
+    *REPLACE*) missing="$missing $var(placeholder)" ;;
+  esac
+done
 
-case "$client_id" in
-  "")
-    echo "AzureAd__ClientId is not set."
-    echo "Set the Entra config first: azd env set AzureAd__Instance/TenantId/ClientId/Audience."
-    exit 1
-    ;;
-  *REPLACE*)
-    echo "AzureAd__ClientId still contains a REPLACE placeholder — set real Entra values via 'azd env set'."
-    exit 1
-    ;;
-esac
+if [ -n "$missing" ]; then
+  echo "Entra (AzureAd) config incomplete —$missing"
+  echo "Set all four: azd env set AZURE_AZURE_AD_INSTANCE / _TENANT_ID / _CLIENT_ID / _AUDIENCE <...>"
+  exit 1
+fi
 
-echo "Entra (AzureAd) config present."
+echo "Entra (AzureAd) config present (all four values set)."
 exit 0

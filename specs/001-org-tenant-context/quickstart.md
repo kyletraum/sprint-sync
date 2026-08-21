@@ -80,18 +80,20 @@ Set these before `azd up` — the API **fails fast at startup** in the cloud if 
 Entra config is missing, rather than 401-ing every request (P0-1):
 
 ```bash
-azd env set AzureAd__Instance  "https://<your-ciam>.ciamlogin.com/"
-azd env set AzureAd__TenantId  "<tenant-id>"
-azd env set AzureAd__ClientId  "<api-app-registration-client-id>"
-azd env set AzureAd__Audience  "api://<api-app-registration-client-id>"
+azd env set AZURE_AZURE_AD_INSTANCE   "https://<your-ciam>.ciamlogin.com/"
+azd env set AZURE_AZURE_AD_TENANT_ID  "<tenant-id>"
+azd env set AZURE_AZURE_AD_CLIENT_ID  "<api-app-registration-client-id>"
+azd env set AZURE_AZURE_AD_AUDIENCE   "api://<api-app-registration-client-id>"
 azd env set BUDGET_ALERT_EMAILS '["you@example.com"]'   # optional; enables the cost backstop
 ```
 
-The AppHost passes the `AzureAd__*` values into the container app; the budget
-alert is provisioned by the postprovision hook when `BUDGET_ALERT_EMAILS` is set.
-A **preprovision guard** (`scripts/check-azuread-config`) refuses to provision if
-`AzureAd__ClientId` is unset or still a placeholder, so a misconfigured deploy
-fails before any resource is created — not as a crash-looping revision (P1-4).
+The AppHost exposes these as Bicep **parameters** that azd resolves into the
+container app's `AzureAd__*` env (so real values deploy, never empty literals).
+A **preprovision guard** (`scripts/check-azuread-config`) refuses to provision
+unless **all four** are set and placeholder-free, so a misconfigured deploy fails
+before any resource is created — not as a crash-looping revision (P1-4/P1-5). The
+budget alert is provisioned by the postprovision hook when `BUDGET_ALERT_EMAILS`
+is set.
 
 ### The pre-deploy cost guard (T045, Principle 12)
 

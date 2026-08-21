@@ -19,5 +19,18 @@ public readonly record struct PageRequest(int Page, int PageSize)
         return new PageRequest(p, size);
     }
 
-    public int Skip => (Page - 1) * PageSize;
+    /// <summary>
+    /// Rows to skip. Computed in <c>long</c> and clamped so a very large page
+    /// number cannot overflow <c>int</c> into a negative SQL OFFSET (a 500) — an
+    /// over-large page coerces to an empty final page, matching the documented
+    /// "coerced, not rejected" paging contract (P1-3).
+    /// </summary>
+    public int Skip
+    {
+        get
+        {
+            var skip = (long)(Page - 1) * PageSize;
+            return skip > int.MaxValue ? int.MaxValue : (int)skip;
+        }
+    }
 }

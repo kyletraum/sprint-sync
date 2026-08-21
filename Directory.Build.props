@@ -10,14 +10,19 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-
-    <!-- Audit only DIRECT dependencies. The one outstanding advisory (NU1903,
-         Microsoft.OpenApi 2.0.0) is a TRANSITIVE dependency of
-         Microsoft.AspNetCore.OpenApi 10.x with no compatible patched 2.x yet, so
-         we cannot resolve it without a breaking 3.x jump. Making the exception
-         explicit and auditable rather than incidental (P2-9); revisit when
-         AspNetCore.OpenApi ships a fixed transitive. -->
-    <NuGetAuditMode>direct</NuGetAuditMode>
   </PropertyGroup>
+
+  <!-- Full NuGet audit stays ON (fail on any NEW advisory). Only the single
+       accepted exception is suppressed, by its exact advisory id: NU1903 for
+       Microsoft.OpenApi 2.0.0, a TRANSITIVE dependency of
+       Microsoft.AspNetCore.OpenApi 10.x with no compatible patched 2.x yet.
+       Revisit when a fixed transitive ships (P1-4). -->
+  <ItemGroup>
+    <!-- Microsoft.OpenApi 2.0.0, transitive via Microsoft.AspNetCore.OpenApi 10.x. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-v5pm-xwqc-g5wc" />
+    <!-- SSH.NET, transitive via Testcontainers (test-only, not shipped); no patched
+         version yet. Surfaced precisely because full auditing is back on. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-q939-rpr3-3284" />
+  </ItemGroup>
 
 </Project>

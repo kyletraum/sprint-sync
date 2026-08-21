@@ -129,7 +129,14 @@ public sealed class QueryFilterTests(SqlServerFixture sql) : IAsyncLifetime
     }
 }
 
-/// <summary>A throwaway work-data entity — the seam's first tenant.</summary>
+/// <summary>
+/// A throwaway work-data entity — the seam's first tenant.
+///
+/// Its backing <c>TestScopedRows</c> table is shared across the "sql" collection
+/// and never dropped; that is safe ONLY because every assertion is scoped to a
+/// unique per-test <c>OrganizationId</c>, so another test's rows are invisible
+/// through the tenant filter. Keep new tests org-scoped (P2-9).
+/// </summary>
 public sealed class TestScopedRow : TenantScopedEntity
 {
     public Guid Id { get; set; }

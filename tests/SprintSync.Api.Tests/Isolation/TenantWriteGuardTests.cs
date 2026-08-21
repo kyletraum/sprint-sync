@@ -67,6 +67,44 @@ public sealed class TenantWriteGuardTests(SqlServerFixture sql) : IAsyncLifetime
         await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
     }
 
+    // --- P0-2: the Modified/UPDATE branch, symmetric with Added ------------
+
+    [Fact]
+    public async Task Update_KeepingSameOrg_Succeeds()
+    {
+        var id = await SeedRowAsync(_orgA);
+
+        await using var db = Context(TenantFor(_orgA));
+        var row = await db.ScopedRows.SingleAsync(r => r.Id == id);
+        row.Title = "after";
+        await db.SaveChangesAsync();
+
+        var reloaded = await db.ScopedRows.SingleAsync(r => r.Id == id);
+        Assert.Equal("after", reloaded.Title);
+        Assert.Equal(_orgA, reloaded.OrganizationId);
+    }
+
+    [Fact]
+    public async Task Update_FlippingOrgToAnotherTenant_IsRejected()
+    {
+        var id = await SeedRowAsync(_orgA);
+
+        await using var db = Context(TenantFor(_orgA));
+        var row = await db.ScopedRows.SingleAsync(r => r.Id == id);
+        row.OrganizationId = _orgB; // reassign to another tenant — the attack the guard exists for
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+    }
+
+    private async Task<Guid> SeedRowAsync(Guid organizationId)
+    {
+        var id = Guid.NewGuid();
+        await using var db = Context(TenantFor(organizationId));
+        db.ScopedRows.Add(new TestScopedRow { Id = id, OrganizationId = organizationId, Title = "before" });
+        await db.SaveChangesAsync();
+        return id;
+    }
+
     private static TenantContext TenantFor(Guid organizationId)
     {
         var tenant = new TenantContext();

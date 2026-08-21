@@ -114,6 +114,12 @@ public sealed class ListOrganizationsTests(SqlServerFixture sql) : IDisposable
         Assert.Empty(beyond.Items);
         Assert.Equal(1, beyond.TotalCount);
         Assert.Equal(99, beyond.Page);
+
+        // An int-overflow-scale page coerces to an empty page rather than
+        // wrapping into a negative SQL OFFSET and 500-ing (P1-3).
+        var huge = await GetPageAsync(client, 30_000_000, 100);
+        Assert.Empty(huge.Items);
+        Assert.Equal(1, huge.TotalCount);
     }
 
     [Fact]

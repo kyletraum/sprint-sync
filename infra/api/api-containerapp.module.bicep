@@ -13,6 +13,14 @@ param api_containerport string
 
 param sql_outputs_sqlserverfqdn string
 
+param azureadinstance_value string
+
+param azureadtenantid_value string
+
+param azureadclientid_value string
+
+param azureadaudience_value string
+
 param api_identity_outputs_clientid string
 
 param cae_outputs_azure_container_registry_endpoint string
@@ -95,19 +103,19 @@ resource api 'Microsoft.App/containerApps@2025-10-02-preview' = {
             }
             {
               name: 'AzureAd__Instance'
-              value: ''
+              value: azureadinstance_value
             }
             {
               name: 'AzureAd__TenantId'
-              value: ''
+              value: azureadtenantid_value
             }
             {
               name: 'AzureAd__ClientId'
-              value: ''
+              value: azureadclientid_value
             }
             {
               name: 'AzureAd__Audience'
-              value: ''
+              value: azureadaudience_value
             }
             {
               name: 'AZURE_CLIENT_ID'

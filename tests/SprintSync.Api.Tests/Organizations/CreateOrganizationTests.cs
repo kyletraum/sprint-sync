@@ -84,4 +84,28 @@ public sealed class CreateOrganizationTests(SqlServerFixture sql) : IDisposable
             .Content.ReadFromJsonAsync<MeResponse>(TestJson.Options);
         Assert.Null(me!.ActiveOrganizationId);
     }
+
+    [Fact]
+    public async Task Create_DuplicateName_YieldsTwoDistinctOrganizations()
+    {
+        // Names are for human recognition, not identity (spec assumption) — two
+        // orgs may share a name and remain distinct (P2-13).
+        var client = _factory.CreateClientFor($"dup-{Guid.NewGuid()}");
+
+        var first = await Create(client, "Acme");
+        var second = await Create(client, "Acme");
+        Assert.NotEqual(first.Id, second.Id);
+
+        var page = await (await client.GetAsync("/api/v1/organizations"))
+            .Content.ReadFromJsonAsync<PagedResult<OrganizationSummary>>(TestJson.Options);
+        Assert.Equal(2, page!.TotalCount);
+        Assert.Equal(2, page.Items.Select(o => o.Id).Distinct().Count());
+
+        static async Task<OrganizationSummary> Create(HttpClient c, string name)
+        {
+            var r = await c.PostAsJsonAsync("/api/v1/organizations", new { name });
+            r.EnsureSuccessStatusCode();
+            return (await r.Content.ReadFromJsonAsync<OrganizationSummary>(TestJson.Options))!;
+        }
+    }
 }

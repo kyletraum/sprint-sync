@@ -1,5 +1,7 @@
 using System.Net;
+using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
+using SprintSync.Api.Contracts;
 using SprintSync.Api.Tests.Infrastructure;
 
 namespace SprintSync.Api.Tests.Auth;
@@ -31,6 +33,28 @@ public sealed class JitProvisioningTests(SqlServerFixture sql) : IDisposable
         Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
 
         // Exactly one row exists for the identity — no duplicate, no failure.
+        await _factory.WithDbAsync(async db =>
+            Assert.Equal(1, await db.Users.CountAsync(u => u.ExternalId == externalId)));
+    }
+
+    [Fact]
+    public async Task RepeatLogin_KeepsStableUserId_AndDoesNotRewriteDisplayName()
+    {
+        var externalId = $"repeat-{Guid.NewGuid()}";
+        var first = _factory.CreateClientFor(externalId, "Ada");
+        var second = _factory.CreateClientFor(externalId, "Grace"); // same identity, new name
+
+        var id1 = (await (await first.GetAsync("/api/v1/me"))
+            .Content.ReadFromJsonAsync<MeResponse>(TestJson.Options))!.UserId;
+        var me2 = (await (await second.GetAsync("/api/v1/me"))
+            .Content.ReadFromJsonAsync<MeResponse>(TestJson.Options))!;
+
+        // Same external identity always resolves to the same local user...
+        Assert.Equal(id1, me2.UserId);
+        // ...and provisioning is create-only: the display name captured at first
+        // sight is not rewritten on later logins (P2-11 pins this decision).
+        Assert.Equal("Ada", me2.DisplayName);
+
         await _factory.WithDbAsync(async db =>
             Assert.Equal(1, await db.Users.CountAsync(u => u.ExternalId == externalId)));
     }

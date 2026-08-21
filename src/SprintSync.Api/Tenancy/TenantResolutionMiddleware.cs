@@ -27,13 +27,15 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next)
         {
             Guid? resolved = null;
 
-            if (TryGetHeaderOrg(context, out var headerOrg))
+            // A header is an "act-as" hint, honored ONLY when the server verifies
+            // the membership itself. Absent, malformed, or naming an org the caller
+            // is not a member of, it falls through to the persisted active org —
+            // consistently, so the header never nukes the caller's own context and
+            // never grants a non-member org (P2-9).
+            if (TryGetHeaderOrg(context, out var headerOrg)
+                && await IsMemberAsync(db, user.Id, headerOrg))
             {
-                // Explicit client-supplied org: honored only if verified.
-                if (await IsMemberAsync(db, user.Id, headerOrg))
-                {
-                    resolved = headerOrg;
-                }
+                resolved = headerOrg;
             }
             else if (user.ActiveOrganizationId is { } activeOrg)
             {

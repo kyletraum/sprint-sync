@@ -1,3 +1,4 @@
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using SprintSync.Api.Data;
 using SprintSync.Api.Data.Entities;
@@ -34,12 +35,13 @@ public sealed class UserProvisioningMiddleware(RequestDelegate next)
                     {
                         await db.SaveChangesAsync();
                     }
-                    catch (DbUpdateException)
+                    catch (DbUpdateException ex) when (ex.InnerException is SqlException { Number: 2601 or 2627 })
                     {
-                        // A concurrent first request for the same identity won the
-                        // race and committed the row (unique ExternalId index).
-                        // Drop our losing insert and adopt the committed user so
-                        // both requests succeed rather than 500 (FR-013).
+                        // ONLY the unique ExternalId index violation (2601/2627):
+                        // a concurrent first request for the same identity won the
+                        // race and committed the row. Drop our losing insert and
+                        // adopt the committed user so both requests succeed rather
+                        // than 500 (FR-013). Any other failure propagates (P2-10).
                         db.Entry(user).State = EntityState.Detached;
                         user = await db.Users.SingleAsync(u => u.ExternalId == externalId);
                     }

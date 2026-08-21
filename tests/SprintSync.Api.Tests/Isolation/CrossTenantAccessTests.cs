@@ -291,6 +291,21 @@ public sealed class CrossTenantAccessTests(SqlServerFixture sql) : IDisposable
     // --- FR-010: malformed client input grants nothing ---------------------
 
     [Fact]
+    public async Task NonMemberHeader_FallsThroughToTheCallersActiveOrg()
+    {
+        var (client, mine) = await NewUserWithOrgAsync("actas", "Acme");
+        var (_, theirs) = await NewUserWithOrgAsync("victim2", "Gamma");
+
+        client.DefaultRequestHeaders.Add(
+            TenantResolutionMiddleware.OrganizationHeader, theirs.Id.ToString());
+
+        // A present-but-unverified header is a no-op, not a context wipe: it falls
+        // through to the caller's own active org, consistent with a malformed
+        // header (P2-9). It never becomes the spoofed org.
+        Assert.Equal(mine.Id, await AmbientTenantAsync(client));
+    }
+
+    [Fact]
     public async Task GarbageOrganizationHeader_IsIgnored_AndFallsBackToOwnActiveOrg()
     {
         var (client, mine) = await NewUserWithOrgAsync("garbled", "Acme");
@@ -306,6 +321,19 @@ public sealed class CrossTenantAccessTests(SqlServerFixture sql) : IDisposable
         var page = await list.Content
             .ReadFromJsonAsync<PagedResult<OrganizationSummary>>(TestJson.Options);
         Assert.Equal(mine.Id, Assert.Single(page!.Items).Id);
+    }
+
+    [Fact]
+    public async Task MalformedOrganizationId_Returns404_AsProblemDetails()
+    {
+        var (client, _) = await NewUserWithOrgAsync("malformed", "Acme");
+
+        var response = await client.GetAsync("/api/v1/organizations/not-a-guid");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        // UseStatusCodePages renders even the route-constraint 404 as problem+json,
+        // so every 404 the client sees shares one shape (P2-14).
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
     }
 
     // --- helpers ----------------------------------------------------------

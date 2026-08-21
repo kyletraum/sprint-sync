@@ -5,6 +5,11 @@ namespace SprintSync.Api.Tests.Infrastructure;
 /// <summary>
 /// Shared SQL Server test container. Real SQL (not the in-memory provider) so
 /// relational query filters and isolation behave faithfully (research R9).
+///
+/// CONVENTION (P2-16): the database is shared across the whole "sql" collection,
+/// so every test MUST scope its data by a unique external id and/or org name
+/// (e.g. $"user-{Guid.NewGuid()}") — never a fixed literal — so tests stay
+/// independent as coverage grows.
 /// </summary>
 public sealed class SqlServerFixture : IAsyncLifetime
 {

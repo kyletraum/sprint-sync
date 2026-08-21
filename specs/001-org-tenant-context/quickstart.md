@@ -74,6 +74,22 @@ azd up               # provision API + SQL (ACA / Azure SQL). The React app is
                      # deployed to Static Web Apps Free from CI, not azd (P1-4).
 ```
 
+### Required azd env values
+
+Set these before `azd up` — the API **fails fast at startup** in the cloud if the
+Entra config is missing, rather than 401-ing every request (P0-1):
+
+```bash
+azd env set AzureAd__Instance  "https://<your-ciam>.ciamlogin.com/"
+azd env set AzureAd__TenantId  "<tenant-id>"
+azd env set AzureAd__ClientId  "<api-app-registration-client-id>"
+azd env set AzureAd__Audience  "api://<api-app-registration-client-id>"
+azd env set BUDGET_ALERT_EMAILS '["you@example.com"]'   # optional; enables the cost backstop
+```
+
+The AppHost passes the `AzureAd__*` values into the container app; the budget
+alert is provisioned by the postprovision hook when `BUDGET_ALERT_EMAILS` is set.
+
 ### The pre-deploy cost guard (T045, Principle 12)
 
 `scripts/check-idle-cost.{sh,ps1}` is the mechanical form of "nothing idles

@@ -39,9 +39,17 @@ builder.Services.AddOpenApi("v1", options =>
 // per-request tenant (research R2).
 builder.Services.AddScoped<ITenantContext, TenantContext>();
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("sprintsync")));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("sprintsync"), sql =>
+    {
+        // The deliberate topology — ACA scale-to-zero + Azure SQL serverless
+        // auto-pause — guarantees the first request after idle hits a RESUMING
+        // database, so transient faults are the expected path, not exceptional.
+        // Retry them instead of failing the request (P1-2).
+        sql.EnableRetryOnFailure();
+        sql.CommandTimeout(60);
+    }));
 
-builder.Services.AddSprintSyncAuth(builder.Configuration);
+builder.Services.AddSprintSyncAuth(builder.Configuration, builder.Environment);
 
 var app = builder.Build();
 
@@ -95,7 +103,10 @@ if (migrateOnStartup)
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await db.Database.MigrateAsync();
+    // Run migration through the retrying execution strategy so the SQL auto-pause
+    // resume window is retried, not crash-looped on (P1-2).
+    var strategy = db.Database.CreateExecutionStrategy();
+    await strategy.ExecuteAsync(() => db.Database.MigrateAsync());
 
     // Demo data is opt-in rather than "on in Development", so the integration
     // suite — which also runs in Development — never inherits rows it did not

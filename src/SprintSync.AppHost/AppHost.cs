@@ -56,7 +56,15 @@ var api = builder.AddProject<Projects.SprintSync_Api>("api")
     // container app runs at MaxReplicas = 1, so no concurrent-migration race (P0-2).
     .WithEnvironment("Database__MigrateOnStartup", "true")
     // Deterministic demo cast.
-    .WithEnvironment("DemoData__Enabled", "true");
+    .WithEnvironment("DemoData__Enabled", "true")
+    // Entra External ID config flows from the AppHost configuration (populated by
+    // `azd env set AzureAd__* ...`) into the deployed container app, so cloud auth
+    // uses real values instead of the appsettings placeholders (P0-1). The API
+    // fail-fast guard refuses to start if these are missing in Production.
+    .WithEnvironment("AzureAd__Instance", builder.Configuration["AzureAd:Instance"] ?? "")
+    .WithEnvironment("AzureAd__TenantId", builder.Configuration["AzureAd:TenantId"] ?? "")
+    .WithEnvironment("AzureAd__ClientId", builder.Configuration["AzureAd:ClientId"] ?? "")
+    .WithEnvironment("AzureAd__Audience", builder.Configuration["AzureAd:Audience"] ?? "");
 
 api.PublishAsAzureContainerApp((_, app) =>
 {

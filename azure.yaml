@@ -23,3 +23,28 @@ hooks:
       shell: pwsh
       run: ./scripts/check-idle-cost.ps1
       continueOnError: false
+
+  # Runtime cost backstop: provision the $1 budget alert with the topology so the
+  # spend guard is never a forgotten manual step (P1-6). Skipped (not failed) when
+  # BUDGET_ALERT_EMAILS is unset: azd env set BUDGET_ALERT_EMAILS '["you@example.com"]'
+  postprovision:
+    posix:
+      shell: sh
+      continueOnError: true
+      run: |
+        if [ -n "$BUDGET_ALERT_EMAILS" ]; then
+          az deployment group create -g "$AZURE_RESOURCE_GROUP" \
+            -f infra/budget.bicep -p alertEmails="$BUDGET_ALERT_EMAILS"
+        else
+          echo "BUDGET_ALERT_EMAILS unset — skipping the cost backstop budget."
+        fi
+    windows:
+      shell: pwsh
+      continueOnError: true
+      run: |
+        if ($env:BUDGET_ALERT_EMAILS) {
+          az deployment group create -g $env:AZURE_RESOURCE_GROUP `
+            -f infra/budget.bicep -p alertEmails=$env:BUDGET_ALERT_EMAILS
+        } else {
+          Write-Host "BUDGET_ALERT_EMAILS unset — skipping the cost backstop budget."
+        }

@@ -1,6 +1,8 @@
+using System.IO;
 using System.Net;
 using System.Text.Json;
 using SprintSync.Api.Tests.Infrastructure;
+using YamlDotNet.Serialization;
 
 namespace SprintSync.Api.Tests.Contract;
 
@@ -93,6 +95,56 @@ public sealed class OpenApiContractTests(SqlServerFixture sql) : IDisposable
         var page = ResponseSchemaProps(root, "/api/v1/organizations", "get", "200");
         Assert.Contains("items", page);
         Assert.Contains("totalCount", page);
+
+        // OrganizationDetail (allOf: OrganizationSummary + memberCount/createdAt) —
+        // the schema the reviewer flagged as uncovered (P1-4).
+        var detail = ResponseSchemaProps(root, "/api/v1/organizations/{organizationId}", "get", "200");
+        Assert.Contains("id", detail);
+        Assert.Contains("name", detail);
+        Assert.Contains("role", detail);
+        Assert.Contains("memberCount", detail);
+        Assert.Contains("createdAt", detail);
+    }
+
+    [Fact]
+    public async Task ContractFile_OperationsMatchTheServedDocument()
+    {
+        // The hand-written contract file is the agreed shape — actually PARSE it
+        // (not merely reference it in a comment) and hold it equal to what the API
+        // serves, so the file and the implementation cannot drift (P1-4).
+        var yaml = new DeserializerBuilder().Build()
+            .Deserialize<Dictionary<string, object>>(await File.ReadAllTextAsync(ContractYamlPath()));
+
+        var methods = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "get", "post", "put", "delete", "patch" };
+        var fileOps = new List<string>();
+        foreach (var path in (IDictionary<object, object>)yaml["paths"])
+        {
+            foreach (var verb in (IDictionary<object, object>)path.Value)
+            {
+                var m = verb.Key.ToString()!;
+                if (methods.Contains(m))
+                {
+                    // The contract's server is /api/v1; the served doc uses full paths.
+                    fileOps.Add($"{m.ToUpperInvariant()} /api/v1{path.Key}");
+                }
+            }
+        }
+
+        Assert.Equal(fileOps.OrderBy(x => x), (await GetServedOperationsAsync()).OrderBy(x => x));
+    }
+
+    private static string ContractYamlPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "SprintSync.slnx")))
+        {
+            dir = dir.Parent;
+        }
+
+        Assert.NotNull(dir);
+        return Path.Combine(
+            dir!.FullName, "specs", "001-org-tenant-context", "contracts", "openapi.yaml");
     }
 
     private async Task<List<string>> GetServedOperationsAsync()

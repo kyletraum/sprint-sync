@@ -9,8 +9,9 @@
 // still proves something unexpected is running, which is why the first alert
 // fires at 50% of it.
 //
-// Deploy into the app's resource group:
-//   az deployment group create -g <rg> -f infra/budget.bicep -p alertEmails='["you@example.com"]'
+// Provisioned automatically by the azd postprovision hook (azure.yaml) when
+// BUDGET_ALERT_EMAILS is set — no manual step (P1-6). To set it:
+//   azd env set BUDGET_ALERT_EMAILS '["you@example.com"]'
 
 targetScope = 'resourceGroup'
 

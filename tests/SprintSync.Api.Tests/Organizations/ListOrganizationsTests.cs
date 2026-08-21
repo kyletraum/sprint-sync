@@ -96,11 +96,37 @@ public sealed class ListOrganizationsTests(SqlServerFixture sql) : IDisposable
     }
 
     [Fact]
-    public async Task List_WithoutAuthentication_Is401()
+    public async Task List_ClampsAndCoercesPagingBoundaries()
+    {
+        var client = _factory.CreateClientFor($"bounds-{Guid.NewGuid()}");
+        await CreateOrgAsync(client, "Solo");
+
+        // Over-cap pageSize is clamped (no unbounded Take).
+        Assert.Equal(PageRequest.MaxPageSize, (await GetPageAsync(client, 1, 1000)).PageSize);
+
+        // Non-positive page/pageSize coerce to defaults — never a negative Skip.
+        Assert.Equal(1, (await GetPageAsync(client, 0, 10)).Page);
+        Assert.Equal(1, (await GetPageAsync(client, -5, 10)).Page);
+        Assert.Equal(PageRequest.DefaultPageSize, (await GetPageAsync(client, 1, 0)).PageSize);
+
+        // A page past the end is an empty page, not an error, count intact.
+        var beyond = await GetPageAsync(client, 99, 10);
+        Assert.Empty(beyond.Items);
+        Assert.Equal(1, beyond.TotalCount);
+        Assert.Equal(99, beyond.Page);
+    }
+
+    [Fact]
+    public async Task List_WithoutAuthentication_Is401_WithProblemDetails()
     {
         var response = await _factory.CreateClient().GetAsync("/api/v1/organizations");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        // UseStatusCodePages + AddProblemDetails render even the auth challenge as
+        // RFC 9457 problem+json, so every error the client sees shares one shape
+        // (Principle III). Pinned so the envelope is a decision, not incidental (P2-15).
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
     }
 
     private static async Task<OrganizationSummary> CreateOrgAsync(HttpClient client, string name)

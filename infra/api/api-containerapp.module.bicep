@@ -94,6 +94,22 @@ resource api 'Microsoft.App/containerApps@2025-10-02-preview' = {
               value: 'true'
             }
             {
+              name: 'AzureAd__Instance'
+              value: ''
+            }
+            {
+              name: 'AzureAd__TenantId'
+              value: ''
+            }
+            {
+              name: 'AzureAd__ClientId'
+              value: ''
+            }
+            {
+              name: 'AzureAd__Audience'
+              value: ''
+            }
+            {
               name: 'AZURE_CLIENT_ID'
               value: api_identity_outputs_clientid
             }

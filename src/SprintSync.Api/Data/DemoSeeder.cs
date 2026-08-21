@@ -4,8 +4,7 @@ using SprintSync.Api.Data.Entities;
 namespace SprintSync.Api.Data;
 
 /// <summary>
-/// Seeds a fixed cast of users, organizations and memberships for local runs
-/// (T047).
+/// Seeds a fixed cast of users, organizations and memberships (T047).
 ///
 /// Deterministic on purpose: every id is a literal, so a demo can be scripted,
 /// a bug report can name a row, and re-running the app changes nothing. The
@@ -13,8 +12,12 @@ namespace SprintSync.Api.Data;
 /// with an organization each, one shared organization between them, and a third
 /// user who belongs to nothing so the empty state is always reachable.
 ///
-/// Never runs in Production, and never runs against a database that already has
-/// organizations.
+/// Seeding is opt-in via <c>DemoData:Enabled</c>, which the Aspire AppHost turns
+/// ON for the deployed demo too — this is a demo app, so a populated cast is the
+/// intended deployed state (P2-12). It is idempotent and never runs against a
+/// database that already has organizations, so it cannot clobber real data. The
+/// integration suite leaves it off, so tests never inherit rows they did not
+/// create.
 /// </summary>
 public static class DemoSeeder
 {

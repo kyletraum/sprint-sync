@@ -94,10 +94,11 @@ public sealed class ActiveOrganizationTests(SqlServerFixture sql) : IDisposable
 
         var resolved = await ActiveOrgAsync(client);
 
-        // Never the stale value, and never null while a valid membership exists.
+        // Never the stale value — and the winner is deterministic, not incidental:
+        // self-heal orders by (name, id), so "Acme" beats "Beta" every time (P1-8).
         Assert.NotEqual(ghost, resolved);
-        Assert.NotNull(resolved);
-        Assert.Contains(resolved!.Value, new[] { acme.Id, beta.Id });
+        Assert.Equal(acme.Id, resolved);
+        Assert.NotEqual(beta.Id, resolved);
 
         // The repair is persisted, so the bad value does not resurface.
         Assert.Equal(resolved, await ActiveOrgAsync(client));

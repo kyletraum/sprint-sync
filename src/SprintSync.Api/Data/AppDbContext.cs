@@ -32,6 +32,54 @@ public class AppDbContext : DbContext
     /// </summary>
     public Guid? CurrentOrganizationId => _tenant.OrganizationId;
 
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        StampAndGuardTenant();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        StampAndGuardTenant();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    /// <summary>
+    /// Write-path counterpart to the global query filter (Principle V): global
+    /// query filters guard reads only, so without this a Guid.Empty or
+    /// cross-tenant OrganizationId could be written by discipline-free handler
+    /// code. Every added/modified <see cref="TenantScopedEntity"/> is stamped
+    /// from the ambient tenant and rejected if it targets any other org — closing
+    /// the isolation seam symmetrically before the first work-data entity exists.
+    /// </summary>
+    private void StampAndGuardTenant()
+    {
+        foreach (var entry in ChangeTracker.Entries<TenantScopedEntity>())
+        {
+            if (entry.State is not (EntityState.Added or EntityState.Modified))
+            {
+                continue;
+            }
+
+            var ambient = _tenant.OrganizationId
+                ?? throw new InvalidOperationException(
+                    "Refusing to write a tenant-scoped entity with no ambient tenant resolved (Principle VI).");
+
+            if (entry.State == EntityState.Added && entry.Entity.OrganizationId == Guid.Empty)
+            {
+                entry.Entity.OrganizationId = ambient;
+            }
+
+            if (entry.Entity.OrganizationId != ambient)
+            {
+                throw new InvalidOperationException(
+                    $"Refusing to write a tenant-scoped entity for organization {entry.Entity.OrganizationId} " +
+                    $"under ambient tenant {ambient} (Principle V — no cross-tenant writes).");
+            }
+        }
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

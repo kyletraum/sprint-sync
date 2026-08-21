@@ -49,15 +49,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Enforce no idle-billable resources
+        # Runs against the COMMITTED infra/ (what actually deploys) — deterministic
+        # and decoupled from the synth step, so a synth hiccup can't turn the cost
+        # gate red for unrelated reasons (P1-5).
+        run: ./scripts/check-idle-cost.sh ./infra
+
+  infra-drift:
+    name: Infra drift check (non-gating)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Install azd
-        uses: Azure/setup-azd@v2
-      - name: Synthesize infrastructure
-        # Local analysis of the Aspire AppHost — no Azure login required.
+      - uses: Azure/setup-azd@v2
+      - name: Regenerate infra and diff against what's committed
         run: |
           azd env new ci --no-prompt || true
           azd infra gen --force
-      - name: Enforce no idle-billable resources
-        run: ./scripts/check-idle-cost.sh ./infra
+          git diff --exit-code -- infra \
+            || echo "::warning::Committed infra/ differs from 'azd infra gen'; run it and commit."

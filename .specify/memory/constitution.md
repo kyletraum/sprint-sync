@@ -22,8 +22,14 @@ Added:
 
 Modified:
   - Deployment & Cost Constraints -> "Pre-deploy verification": the reviewed set
-    is now the resources *reachable from* `infra/main.bicep`, not every `.bicep`
-    file under `infra/`. Unreachable infrastructure is a defect in its own right.
+    is now the resources applied by a *declared deploy path* (provision via
+    `main.bicep`, azd's per-service deploy module, or an `azure.yaml` hook), not
+    every `.bicep` file under `infra/`. Infrastructure on no path is a defect.
+    NOTE: an earlier draft of this amendment made bare reachability from
+    `main.bicep` the test. Verifying it against the repo disproved that — both
+    `infra/budget.bicep` (hook-deployed) and `infra/api/api-containerapp.module.bicep`
+    (azd deploy-time module) are unreachable from `main.bicep` yet correctly
+    deployed. The three-path form is what survived contact with the code.
 
 Templates / follow-ups:
   - `.specify/templates/plan-template.md` references the Constitution Check
@@ -216,12 +222,22 @@ idle-billable resource (e.g. `Microsoft.Cache/redis`,
 `Microsoft.DBforPostgreSQL`, dedicated `workloadProfiles`) was added. A budget
 alert at $1 is kept as a backstop.
 
-The reviewed set is the resources **reachable from `infra/main.bicep`** — not
-every `.bicep` file present under `infra/`. A module that is not reachable is
-not deployed, so it can neither satisfy a verification check nor be cited as
-evidence that a resource exists. Unreachable infrastructure MUST be wired in or
-deleted; leaving it in place is a defect, because it makes the guard report a
-posture the running system does not have.
+The reviewed set is the resources that some **declared deploy path** actually
+applies — not every `.bicep` file present under `infra/`. There are three such
+paths, and a template is legitimate if it sits on any one of them:
+
+1. **Provision** — reachable from `infra/main.bicep` by module reference.
+2. **Service deploy** — the per-service module azd applies at `azd deploy`
+   (recognisable by its image parameter, which cannot exist at provision time;
+   its other parameters are fed by `main.bicep` outputs).
+3. **Declared hook** — a template invoked by a hook in `azure.yaml`.
+
+A `.bicep` file on **none** of these paths is dead infrastructure and MUST be
+wired in or deleted. Verification checks MUST NOT count a template toward a
+posture claim unless it sits on a deploy path, because presence under `infra/`
+would otherwise let the guard report a posture the running system does not have.
+Reachability from `main.bicep` alone is **not** the test — applying it as such
+falsely condemns paths 2 and 3.
 
 ## Governance
 

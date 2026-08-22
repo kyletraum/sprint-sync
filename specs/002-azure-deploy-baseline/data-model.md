@@ -26,6 +26,33 @@ Environment-scoped configuration, held in the azd environment
 | `BUDGET_ALERT_EMAILS` | Operator | Budget template parameter | JSON array; **absence skips the backstop rather than failing** (FR-015) |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Provisioned by the AppHost | Gates the telemetry exporter | Absence must not prevent startup (FR-019) |
 
+### Web application build-time settings
+
+Inlined by Vite **at build time** (`web/sprint-sync-web/src/auth/config.ts`), so
+they are baked into the bundle and cannot be changed after the fact. Sourced from
+repository secrets/variables in the deploy workflow; never committed.
+
+| Value | Source | Consumer |
+|---|---|---|
+| `VITE_ENTRA_AUTHORITY` | External ID tenant | MSAL authority |
+| `VITE_ENTRA_CLIENT_ID` | Web app registration | MSAL client |
+| `VITE_API_SCOPE` | API app registration | Token scope requested |
+| `VITE_API_BASE_URL` | Deployed API URL | **Absolute** — the relative `/api/v1` default is a same-origin assumption that breaks once hosted |
+
+**Consequence**: changing the tenant or the API URL requires a **rebuild and
+redeploy** of the SPA, not a configuration edit.
+
+### Hosted-origin values
+
+| Value | Produced by | Consumed by |
+|---|---|---|
+| Static Web App hostname | Provisioning the SWA | API CORS policy; identity redirect URI |
+| SWA deployment token | The SWA resource | The content-deploy workflow |
+
+These create the feature's only strictly-sequential chain: the hostname does not
+exist until the SWA is provisioned, but both the CORS policy and the redirect URI
+need it.
+
 **Validation rules** (existing guard, `check-azuread-config.{sh,ps1}` — verified
 correct, no change needed):
 - All four `AZURE_AZURE_AD_*` present and non-empty, else provisioning is refused.
@@ -72,6 +99,7 @@ derived — computed per run, never stored.
 | `sql/sql.module.bicep` | `provision` |
 | `api/api-containerapp.module.bicep` | **`service-deploy`** |
 | `budget.bicep` | **`hook`** |
+| `infra-web/*.bicep` (new) | **`hook`** — outside `infra/` deliberately, so `azd infra gen` cannot erase it. Note it therefore falls **outside the guard's default scan path** (`infra/`); whether to extend the scan so the Free tier is enforced is decided in T016. |
 
 **Zero templates classify as `none`.** The guard must pass on this repository —
 the last two rows are exactly the false positives a naive reachability test

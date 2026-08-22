@@ -298,3 +298,128 @@ defect; no behaviour depends on a comment.
 | R7 | Attack suite against deployed API | **Deferred** — decide after deployment exists |
 | R8 | Prove CI can fail | Throwaway PR with a broken test |
 | R9 | Stale "Principle X" comment | Correct while editing `AppHost.cs` |
+| R10 | Web hosting + deploy mechanism | Hook-deployed Bicep + GitHub Actions content deploy; not an azd service, not hand-added to generated infra |
+| R11 | Hosted SPA → API across origins | **API has no CORS at all** — add a named-origin policy; SWA proxy needs Standard tier |
+| R12 | SPA build-time settings | Injected at build from the environment; SPA must be rebuilt when they change |
+
+---
+
+## R10: How is the web application hosted and deployed?
+
+**Decision**: Provision the Static Web App from a **hook-deployed Bicep template**
+(the same pattern as `budget.bicep`), and deploy built content from a GitHub
+Actions job using a deployment token.
+
+**Rationale**: Added to scope 2026-08-22 so SC-001 can be met literally. Three
+constraints pin the design:
+
+1. **The constitution mandates Static Web Apps Free.** Not a preference — it is
+   written into Deployment & Cost Constraints.
+2. **The SPA cannot be an azd service.** `azure.yaml` records why: azd forbids
+   pairing an Aspire service with a sibling service, which is why the React app
+   was excluded in the first place. That constraint has not changed.
+3. **`infra/` is generated** by `azd infra gen` from the AppHost and is diffed by
+   the CI infra-drift job. A hand-added Static Web App resource there would be
+   erased on the next regeneration.
+
+The declared-hook path resolves all three. It is now a **first-class deploy path**
+under constitution v1.1.0's revised Pre-deploy verification rule — the same path
+`budget.bicep` already uses, and one the US4 cost guard explicitly recognises. So
+the hosting template is legitimate infrastructure that no reachability test will
+condemn.
+
+**Alternatives considered**:
+- *Aspire `AddAzureStaticWebApp`-style resource in the AppHost*: rejected. It
+  would make the SPA part of the Aspire manifest, which is exactly the
+  sibling-service pairing azd forbids (constraint 2).
+- *Hand-add to `infra/main.bicep`*: rejected — erased on regeneration, and the
+  infra-drift job would fail (constraint 3).
+- *SWA's built-in GitHub integration* (auto-generated workflow): rejected. It
+  writes a workflow we do not control and bakes in build settings that must come
+  from the deployment environment (R11).
+- *Serve the SPA from the API container*: rejected. Puts the SPA on the ACA
+  compute grant, which 001 deliberately avoided, and couples SPA releases to API
+  releases.
+
+**Note on tiers**: linked backends ("bring your own API") for Container Apps are
+a **Standard**-tier feature. Free tier supports managed Azure Functions only.
+That rules out the same-origin proxy approach and is what forces R11. Confirm at
+implementation time before relying on it.
+
+---
+
+## R11: How does the hosted SPA reach the API across origins?
+
+**Decision**: Configure an explicit CORS policy on the API permitting the hosted
+SPA's origin, and build the SPA with an **absolute** API base URL.
+
+**Rationale**: This is the finding that makes hosting more than a deployment
+task. Checked directly:
+
+```
+grep -rE "AddCors|UseCors|WithOrigins" src/SprintSync.Api/   →  no matches
+web/.../auth/config.ts:21
+  apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+```
+
+**The API has no CORS configuration at all**, and the SPA defaults to a
+*relative* `/api/v1` — a same-origin assumption that holds under the local Vite
+dev proxy and breaks the moment the SPA is served from a Static Web Apps
+hostname. Every browser call would be blocked by the preflight check. Sign-in
+would appear to work and then fail on the first API call, which is a
+particularly confusing failure to debug.
+
+The same-origin fix (SWA proxying `/api/*` to the container app) needs a linked
+backend, which needs Standard tier, which the constitution forbids. So the
+Free-tier-compliant path is CORS.
+
+**This requires touching `src/SprintSync.Api/`**, which the spec otherwise
+excludes. The carve-out is recorded in Out of Scope and FR-030: it is
+deployment-enabling configuration, not a change to what the application does. No
+endpoint, DTO, or isolation behaviour changes.
+
+**Constraints on the policy**:
+- Named origin only. **No wildcard** — the API is a credentialed, tenant-scoped
+  surface, and `AllowAnyOrigin` with credentials is both insecure and rejected by
+  browsers.
+- Origin supplied by configuration, not compiled in, so it differs per
+  environment without a code change.
+
+**Alternatives considered**:
+- *SWA linked backend / same-origin proxy*: rejected — Standard tier (R10).
+- *Wildcard CORS*: rejected — insecure on a credentialed API.
+- *Keep the SPA local*: rejected — that is exactly what the user declined.
+
+**Ordering consequence** (the awkward part): the hosted origin does not exist
+until the Static Web App is provisioned, but it is needed for both the CORS
+policy and the identity redirect URI; and the API's URL is needed to build the
+SPA. So: provision hosting → read the hostname → configure CORS and redirect URI
+→ build the SPA with the API URL → deploy content. A single-pass "deploy
+everything" cannot satisfy this, and the tasks are sequenced accordingly.
+
+---
+
+## R12: Where do the SPA's build-time settings come from?
+
+**Decision**: Supplied as build environment variables in the deploy workflow,
+sourced from repository secrets/variables, never committed.
+
+**Rationale**: `web/sprint-sync-web/src/auth/config.ts` reads four values through
+`import.meta.env`: `VITE_ENTRA_AUTHORITY`, `VITE_ENTRA_CLIENT_ID`,
+`VITE_API_SCOPE`, `VITE_API_BASE_URL`. Vite inlines these **at build time** —
+they are not runtime configuration, so they cannot be injected by the host after
+the fact the way container environment variables can.
+
+Consequence: the SPA must be **rebuilt** whenever the identity tenant or the API
+URL changes. Worth stating plainly, because it is a genuine operational
+difference from the API and a natural source of "I updated the setting and
+nothing happened".
+
+`web/sprint-sync-web/.env.example` documents the shape and stays the reference
+for local development.
+
+**Alternatives considered**:
+- *Commit a production `.env`*: rejected — FR-029, and it hardcodes one
+  environment's identity into the repository.
+- *Runtime config fetched from the API on boot*: rejected as over-engineering for
+  one environment; revisit only if multi-environment hosting arrives.

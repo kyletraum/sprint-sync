@@ -7,10 +7,17 @@
 ## Summary
 
 Take Sprint Sync from "green locally" to "provably running in Azure". Stand up an
-Entra External ID tenant, deploy with `azd up`, wire health probes and telemetry
-so the platform can see the service, fix the cost guard so it reports on what is
-actually deployed, and prove tenant isolation against the deployed API — which is
-feature 001's outstanding Principle IX evidence.
+Entra External ID tenant, deploy the API with `azd up`, **host the React app on
+Static Web Apps Free**, wire health probes and telemetry so the platform can see
+the service, fix the cost guard so it reports on what is actually deployed, and
+prove tenant isolation against the deployed API — which is feature 001's
+outstanding Principle IX evidence.
+
+**Scope was widened on 2026-08-22** to include web hosting, so SC-001 ("a real
+person can sign in to the deployed Sprint Sync") is met literally rather than by
+running the SPA locally. Task generation had found that feature 001's T044 claims
+this was already done while no Static Web Apps configuration exists anywhere in
+the repository.
 
 The plan's central sequencing problem: three of five stories block behind an
 identity tenant that does not exist, while two are buildable today. Phase 1 below
@@ -30,9 +37,9 @@ assumption fails early if it is going to fail.
 
 **Testing**: xUnit + Testcontainers (backend, 56 tests), vitest (web, 5 tests), `check-idle-cost.{sh,ps1}` guards, GitHub Actions CI (4 jobs, green on run 32537061874)
 
-**Target Platform**: Azure Container Apps (Consumption, `minReplicas: 0`), Azure Static Web Apps Free (web, out of scope here), Entra External ID (to be created)
+**Target Platform**: Azure Container Apps (Consumption, `minReplicas: 0`), **Azure Static Web Apps Free (web — now in scope, R10)**, Entra External ID (to be created)
 
-**Project Type**: Web service + SPA, deployed via azd from an Aspire AppHost
+**Project Type**: Web service + SPA. API via azd from the Aspire AppHost; SPA via a hook-deployed template plus a content-deploy workflow — it cannot be an azd service, because azd forbids pairing an Aspire service with a sibling (R10)
 
 **Performance Goals**: None new. Cold-start and database-resume latency after idle are explicitly accepted by the constitution.
 
@@ -45,6 +52,8 @@ assumption fails early if it is going to fail.
 **Scale/Scope**: One environment, one region, single replica ceiling. Demo scale.
 
 **Unknown carried forward**: how the cross-tenant attack suite is retargeted at a deployed API (R7). Deliberately deferred — see Complexity Tracking.
+
+**Chicken-and-egg introduced by hosting**: the hosted origin does not exist until the Static Web App is provisioned, yet it is required by both the API's CORS policy and the identity redirect URI; and the API's URL is required to build the SPA. One pass cannot satisfy this — provision, then configure, then build and deploy (R11).
 
 ## Constitution Check
 
@@ -66,7 +75,7 @@ Principle X and the three-deploy-path verification rule this feature implements.
 | IX. Contract-First, Isolation-Proven Testing | **Yes — discharges 001's gate** | US2 runs the cross-tenant attack suite against the deployed API. **PASS, conditional** — see gate note below |
 | X. Operable by Default | **Yes — primary** | US3 delivers probes actually called by the platform, plus telemetry export when a destination is supplied. **PASS with a resolved conflict** — see below |
 | Technology & Platform Constraints | Yes | Probes and telemetry declared in the AppHost, never hand-written into generated Bicep. **PASS** |
-| Deployment & Cost Constraints | **Yes — primary** | US4 makes the guard enforce the revised three-path rule. New App Insights adds no standing cost (R5). **PASS** |
+| Deployment & Cost Constraints | **Yes — primary** | US4 makes the guard enforce the revised three-path rule. New App Insights adds no standing cost (R5). Static Web Apps **Free** is what the constitution explicitly prescribes for the React app — hosting it is compliance, not an addition (R10). **PASS** |
 
 ### Resolved conflict: Principle X vs Deployment & Cost Constraints
 
@@ -99,7 +108,7 @@ constitution violation.
 ```text
 specs/002-azure-deploy-baseline/
 ├── plan.md              # This file
-├── research.md          # Phase 0 output — R1-R9
+├── research.md          # Phase 0 output — R1-R12
 ├── data-model.md        # Phase 1 output
 ├── quickstart.md        # Phase 1 output — operator setup + validation guide
 ├── contracts/           # Phase 1 output
@@ -112,7 +121,8 @@ specs/002-azure-deploy-baseline/
 
 ### Source Code (repository root)
 
-Files this feature touches. It adds no new project and no new source directory.
+Files this feature touches. It adds no new .NET project; web hosting adds one
+infrastructure directory and one workflow.
 
 ```text
 src/
@@ -127,9 +137,23 @@ src/
 └── SprintSync.Api/
     └── Program.cs                  # EDIT: signal startup complete to the readiness gate
 
+src/SprintSync.Api/
+└── (CORS policy)                   # EDIT: named-origin policy for the hosted SPA
+                                    #       (R11) — the API has NONE today
+
+web/sprint-sync-web/                # NO feature changes. Built and deployed only.
+
+infra-web/                          # NEW: hook-deployed Static Web App template.
+                                    # Deliberately OUTSIDE infra/, which is
+                                    # generated and would erase it (R10).
+
 scripts/
 ├── check-idle-cost.sh              # EDIT: three-path classification (R6)
 └── check-idle-cost.ps1             # EDIT: identical twin
+
+.github/workflows/
+└── deploy-web.yml                  # NEW: build with env-injected settings,
+                                    #      deploy content (R10, R12)
 
 infra/                              # GENERATED — never hand-edited.
                                     # Regenerated by `azd infra gen`; the CI
@@ -177,6 +201,10 @@ it proceeds even if the tenant hits trouble.
 - **App Insights resource + un-stubbed exporter + package** (R5) → *US3, code half*
 - **Probes in `PublishAsAzureContainerApp`** (R4) → *US3, code half*
 - **Stale `Principle X` comment fix** (R9)
+- **API CORS policy**, named-origin, origin supplied by configuration (R11) —
+  written now, pointed at the real origin in Phase 3
+- **Static Web App template** in `infra-web/`, and the content-deploy workflow
+  (R10, R12) — authored now, executed in Phase 3
 
 **Deliverable**: `azd infra gen` regenerates cleanly, the cost guard passes on
 real infra and fails on a planted no-path template, all existing tests stay green.
@@ -196,7 +224,13 @@ hook skips silently without it — FR-015).
 - Confirm probes work against the real deployment — the crash-loop risk in R2
   is only truly retired here → *US3 scenario 5*
 - Confirm traces are queryable → *US3 scenario 3*
-- Interactive sign-in through the web app → *US1 scenario 4*
+- Provision the Static Web App; **read its hostname** — nothing downstream can be
+  configured until it exists → *US1 scenario 4*
+- Configure the API's permitted origin and the identity redirect URI from that
+  hostname → *US1 scenario 5*
+- Build the SPA with the deployed API URL and tenant settings injected, deploy
+  content → *US1 scenario 4*
+- Interactive sign-in through the **hosted** web app → *US1 scenario 6*
 
 ### Phase 4 — Prove isolation (the Principle IX gate)
 
@@ -220,6 +254,7 @@ Phase 2 changes. → *US5 remaining scenarios*
 | 1 — tenant | $0 (External ID free tier) |
 | 2 — offline | $0 |
 | **3 — deploy** | **~$5-8/mo floor begins** |
+| 3 — web hosting | $0 (Static Web Apps **Free**) |
 | 4-5 | No additional standing cost |
 
 ## Complexity Tracking
@@ -240,3 +275,6 @@ Phase 2 changes. → *US5 remaining scenarios*
 | App Insights ingestion exceeds the free grant | Low | Medium | Demo scale, scale-to-zero at idle. Confirm via SC-004; add sampling if non-trivial. |
 | Hand-editing generated Bicep | Low | Medium | CI infra-drift job catches it. Declare in the AppHost only. |
 | Re-litigating the "orphaned module" | Medium | Medium — wasted work, or a broken deploy if acted on | Recorded as Settled in spec.md and carried into R6. Do not wire it into `main.bicep`; do not delete it. |
+| CORS misconfiguration blocks the hosted SPA | **High** | High — sign-in appears to work, then every API call fails | The API has **no** CORS today (R11). Named origin, no wildcard on a credentialed API. Verify from a browser, not curl — curl does not enforce CORS and will pass while the SPA fails. |
+| SPA built with stale settings | Medium | Medium — silent misconfiguration | Vite inlines settings at build (R12), so changing the tenant or API URL requires a **rebuild**. Natural source of "I changed the setting and nothing happened". |
+| Static Web App template placed in generated `infra/` | Medium | Medium — erased, infra-drift job fails | Keep it in `infra-web/`, deployed by a declared hook — a first-class deploy path under v1.1.0 (R10). |

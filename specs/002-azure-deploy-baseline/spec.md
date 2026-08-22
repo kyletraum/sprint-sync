@@ -34,9 +34,11 @@ there; this spec is now their single home.
 ### User Story 1 - An operator can sign in to a deployed Sprint Sync (Priority: P1)
 
 An operator with no prior Azure setup follows a documented sequence and ends up
-with a running Sprint Sync in Azure that a real person can sign in to with a
-real identity. Today this is impossible: no identity tenant exists, and the
-preprovision guard correctly refuses to deploy without one.
+with a running Sprint Sync in Azure — API **and** web app — that a real person
+can reach in a browser and sign in to with a real identity. Today this is
+impossible twice over: no identity tenant exists and the preprovision guard
+correctly refuses to deploy without one, and nothing deploys the web
+application at all.
 
 **Why this priority**: Nothing else in this feature can be verified until the
 system is deployed and reachable. Every other story depends on this one having
@@ -59,10 +61,14 @@ product.
 3. **Given** the API is deployed, **When** its runtime configuration is
    inspected, **Then** all four identity settings are present and **non-empty**
    — not blank, not placeholder text.
-4. **Given** the deployment succeeded, **When** a real person signs in through
-   the web app, **Then** they are authenticated and see their own organization,
-   having been provisioned on first sign-in.
-5. **Given** an operator with no prior context, **When** they follow the setup
+4. **Given** the deployment succeeded, **When** the web application is deployed,
+   **Then** it is reachable at a stable public URL and serves the built SPA.
+5. **Given** the hosted web application, **When** a browser loads it and calls
+   the API, **Then** the cross-origin request is accepted rather than blocked.
+6. **Given** the deployment succeeded, **When** a real person signs in through
+   the **hosted** web app, **Then** they are authenticated and see their own
+   organization, having been provisioned on first sign-in.
+7. **Given** an operator with no prior context, **When** they follow the setup
    documentation start to finish, **Then** they reach a working deployment
    without needing to consult the implementers.
 
@@ -255,6 +261,25 @@ completes, running the full test suite and reporting an accurate result.
   confirm the API is reachable and correctly configured without reading
   application logs line by line.
 
+#### Web application hosting
+
+- **FR-027**: The web application MUST be deployed to a hosted, publicly
+  reachable URL as part of the documented deployment procedure — not run
+  locally against the deployed API.
+- **FR-028**: Hosting MUST remain on the free tier, adding no standing cost, per
+  the constitution's requirement that the React app is hosted on Static Web Apps
+  (Free).
+- **FR-029**: The SPA's build-time configuration (identity authority, client id,
+  API scope, API base URL) MUST be supplied at build time from the deployment
+  environment, never committed and never hardcoded to a developer's values.
+- **FR-030**: The API MUST accept browser requests from the hosted web
+  application's origin. Without this the hosted SPA cannot call the API at all.
+  The permitted origin MUST be configured, not wildcarded.
+- **FR-031**: The identity registration MUST list the hosted web application's
+  redirect URI, so sign-in completes from the hosted origin.
+- **FR-032**: Deploying the web application MUST be repeatable and automated,
+  not a one-off manual upload.
+
 #### Cost governance
 
 - **FR-009**: The cost guard MUST classify each infrastructure template by
@@ -323,8 +348,9 @@ completes, running the full test suite and reporting an accurate result.
 
 ### Measurable Outcomes
 
-- **SC-001**: A real person can sign in to the deployed Sprint Sync and see
-  their own organization.
+- **SC-001**: A real person can open the **hosted** web application at its public
+  URL, sign in, and see their own organization — no local tooling involved.
+- **SC-001a**: The hosted web application adds no standing cost.
 - **SC-002**: An operator starting with no Azure or identity setup reaches a
   working deployment by following the documentation alone, without help from the
   implementers.
@@ -363,7 +389,15 @@ completes, running the full test suite and reporting an accurate result.
 - The existing cross-tenant attack suite can be pointed at a deployed API
   without being rewritten; if it cannot, adapting it is in scope.
 - Feature 001's application behavior is correct as built. This feature validates
-  it; it does not change it.
+  it, and changes it only where deployment requires (the CORS policy, FR-030).
+- **Feature 001's T044 is falsely marked complete.** It claims "Configure React
+  deployment to Azure Static Web Apps Free + `azd` wiring" is done, but no Static
+  Web Apps configuration exists anywhere in the repository — no workflow, no
+  Bicep, no azd service, no CLI config. `ci.yml`'s web job lints, tests and
+  builds; it does not deploy. Web hosting is therefore **new work here**, not
+  the re-validation of existing work, and 001's record must be corrected.
+- The web application is a static SPA with no server-side rendering, so free
+  static hosting is sufficient.
 
 ## Settled Decisions *(do not re-litigate)*
 
@@ -405,12 +439,20 @@ findings, not preferences — each was checked against the repository.
   on a real runner (run 32537061874, PR #3, all four jobs). Feature 001's Phase
   9A (migration lock, cancellation tokens, deepened contract test, query-filter
   refactor) is complete and merged.
+- **Ordering dependency introduced by web hosting**: the hosted origin is not
+  known until the hosting resource exists, but that origin is required by both
+  the API's permitted-origin configuration (FR-030) and the identity redirect URI
+  (FR-031); and the API's URL is required to build the SPA (FR-029). Hosting
+  resource first, then configuration, then build and deploy.
 
 ## Out of Scope
 
-- The React application's Static Web Apps deployment from CI — already handled,
-  and deliberately kept off the container compute grant.
-- Any change to feature 001's application behavior.
+- Any React application feature work. Hosting the SPA is **in** scope (see
+  US1); changing what it does is not.
+- Any change to feature 001's application behavior, **except** the CORS policy
+  the API requires to accept browser requests from the hosted SPA's origin. That
+  is deployment-enabling configuration, not a behavioural change, and without it
+  a hosted SPA cannot call the API at all (see FR-030).
 - Separate staging/production environments, custom domains, and TLS certificates
   beyond platform defaults.
 - Autoscaling beyond the constitution's single-replica ceiling.

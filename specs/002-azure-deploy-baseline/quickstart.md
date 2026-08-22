@@ -166,13 +166,52 @@ is touching the database — a cost breach (R3).
 
 ---
 
-## Step 6 — Sign in
+## Step 6 — Host the web app and sign in
 
-Open the deployed web app, sign in with an External ID account.
+The web app is **not** deployed by `azd up` — azd forbids pairing an Aspire
+service with a sibling service, so the SPA deploys separately. Three steps, and
+they are strictly ordered: each needs the previous one's output.
+
+### 6a — Provision the Static Web App
+
+Deployed by the `azure.yaml` postprovision hook from `infra-web/` (the same
+declared-hook path `budget.bicep` uses). **Record the hostname it returns** —
+nothing below can be configured until it exists.
+
+Free tier, so this adds no standing cost.
+
+### 6b — Configure the origin everywhere it is needed
+
+Using that hostname:
+
+1. Set the API's permitted CORS origin and redeploy the API so it takes effect.
+2. Add the hosted redirect URI to the web app registration from Step 2.
+
+> **The API has no CORS configuration by default.** Without this, sign-in appears
+> to succeed and then every API call fails at the browser's preflight check —
+> a confusing failure, because the API itself is healthy. Use a **named origin**,
+> never a wildcard: this is a credentialed, tenant-scoped API.
+
+### 6c — Build and deploy the SPA
+
+Run the web deploy workflow. It builds with `VITE_ENTRA_AUTHORITY`,
+`VITE_ENTRA_CLIENT_ID`, `VITE_API_SCOPE` and `VITE_API_BASE_URL` (the deployed
+API URL) injected from repository secrets, then uploads the output.
+
+> Vite inlines these **at build time**. They are not runtime settings — changing
+> the tenant or the API URL requires a **rebuild and redeploy**, not a config
+> edit. This is the usual cause of "I changed the setting and nothing happened".
+
+### 6d — Sign in
+
+Open the Static Web App URL in a **browser** and sign in with a test identity.
 
 **Expect**: authenticated, provisioned on first sign-in, own organization
 visible. This is the walkthrough feature 001's T048 record lists as **"Not
 validated"** — completing it is what closes that gap.
+
+> **Verify in a browser, not with `curl`.** curl does not enforce CORS, so it
+> will happily succeed against an API that every browser is blocking.
 
 ---
 
@@ -198,6 +237,10 @@ Record what ran, against which deployment and commit, when, and the result — i
 azd down --purge
 ```
 
+Then delete the Static Web App (it is hook-deployed, so `azd down` does not
+necessarily remove it) — it is Free tier, so it costs nothing, but leaving it
+serving a SPA that points at a deleted API is worse than deleting it.
+
 Stops all spend. `--purge` matters: soft-deleted resources can otherwise keep
 billing or block re-creating names.
 
@@ -211,5 +254,6 @@ billing or block re-creating names.
 | 3 | Infra correct before spending | US4 |
 | 4 | Deploys with real config | US1 sc.2-3, FR-006 |
 | 5 | Platform can see health; traces queryable | US3, SC-006 |
-| 6 | A real person can sign in | US1 sc.4, SC-001 |
+| 6a-6c | Web app hosted, origin configured | US1 sc.4-5, FR-027, FR-030 |
+| 6d | A real person can sign in to the **hosted** app | US1 sc.6, SC-001 |
 | 7 | **Isolation holds when deployed** | US2, SC-003, SC-009 |

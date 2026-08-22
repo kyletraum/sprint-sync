@@ -218,6 +218,8 @@ idle floor).
 - [x] T053 [P] Rewrite the tenant global query filter in `src/SprintSync.Api/Data/AppDbContext.cs:120-133` from the `Expression.Constant(this)` reflection form to the idiomatic context-instance-member reference; `tests/SprintSync.Api.Tests/Isolation/QueryFilterTests.cs` must stay green (behaviour-preserving refactor only). Handoff item 7 (Round 5 P2-7).
 - [ ] T054 [P] **(OPTIONAL — reviewer: no change required; NOT taken up, see record below)** Refresh the provisioned `DisplayName` from the token on repeat login in `src/SprintSync.Api/Auth/UserProvisioningMiddleware.cs`, guarded to write only when the value actually changed. Handoff item 8 (Round 5 P2-13). Skip unless the create-only JIT decision is deliberately revisited.
 
+- [ ] T059 [P] Decide and act on the unenforced IDE0005 rule: `.editorconfig` sets `dotnet_diagnostic.IDE0005.severity = error` (unused usings) but `Directory.Build.props` sets `GenerateDocumentationFile=false`, and IDE0005 does not run on build without it — the compiler says so via the `EnableGenerateDocumentationFile` warnings in every CI run. Either enable the documentation file and fix the fallout, or drop the rule so `.editorconfig` stops implying an enforcement that never happens. Surfaced by the first live CI run (workflow 32537061874); **not** covered by the Phase 9A validation record below.
+
 > **Phase 9A validation record**: T050–T053 are complete and **verified green in
 > CI** — PR #3, workflow run 32537061874, commit `21de171`:
 >

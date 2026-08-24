@@ -153,22 +153,22 @@ tasks below target `/alive` and the **new** `/ready`. Pointing a readiness probe
 
 ### Readiness endpoint and gate (research R2, R3)
 
-- [ ] T031 [P] [US3] Add a `ready`-tagged, **database-free** startup-gate health check in `src/SprintSync.ServiceDefaults/Extensions.cs` (`AddDefaultHealthChecks`), reporting Unhealthy until startup work completes and Healthy thereafter, backed by an in-memory flag. **It must not open a database connection** — the database is free-serverless with `AutoPauseDelay = 60`, and a per-probe connection would keep it awake permanently, breaching the Deployment & Cost Constraints silently (research R3). Only a `live`-tagged `"self"` check exists today; there is no `ready` tag to reuse.
-- [ ] T032 [US3] Map `GET /ready` in `MapDefaultEndpoints` in `src/SprintSync.ServiceDefaults/Extensions.cs`, in **all** environments, filtered to the `ready` tag, returning **status only** with no per-check detail. Leave `/health` Development-only — its restriction is a deliberate security decision (https://aka.ms/aspire/healthchecks) and `/ready`'s no-detail response is what makes it safe in Production. Contract: [contracts/health-endpoints.md](./contracts/health-endpoints.md).
-- [ ] T033 [US3] Signal startup-complete to the readiness gate from `src/SprintSync.Api/Program.cs`, after migration and seeding finish, so readiness correctly withholds traffic during the migration window (FR-017).
+- [x] T031 [P] [US3] Add a `ready`-tagged, **database-free** startup-gate health check in `src/SprintSync.ServiceDefaults/Extensions.cs` (`AddDefaultHealthChecks`), reporting Unhealthy until startup work completes and Healthy thereafter, backed by an in-memory flag. **It must not open a database connection** — the database is free-serverless with `AutoPauseDelay = 60`, and a per-probe connection would keep it awake permanently, breaching the Deployment & Cost Constraints silently (research R3). Only a `live`-tagged `"self"` check exists today; there is no `ready` tag to reuse.
+- [x] T032 [US3] Map `GET /ready` in `MapDefaultEndpoints` in `src/SprintSync.ServiceDefaults/Extensions.cs`, in **all** environments, filtered to the `ready` tag, returning **status only** with no per-check detail. Leave `/health` Development-only — its restriction is a deliberate security decision (https://aka.ms/aspire/healthchecks) and `/ready`'s no-detail response is what makes it safe in Production. Contract: [contracts/health-endpoints.md](./contracts/health-endpoints.md).
+- [x] T033 [US3] Signal startup-complete to the readiness gate from `src/SprintSync.Api/Program.cs`, after migration and seeding finish, so readiness correctly withholds traffic during the migration window (FR-017).
 
 ### Telemetry export (research R5)
 
-- [ ] T034 [P] [US3] Add the `Azure.Monitor.OpenTelemetry.AspNetCore` package to `src/SprintSync.ServiceDefaults/SprintSync.ServiceDefaults.csproj`. The exporter stub at `Extensions.cs:91-94` is commented out precisely because this package is absent, so this is a package addition, not just uncommenting.
-- [ ] T035 [US3] Enable the Azure Monitor exporter in `AddOpenTelemetryExporters` in `src/SprintSync.ServiceDefaults/Extensions.cs`, gated on non-empty `APPLICATIONINSIGHTS_CONNECTION_STRING`. Absence must leave startup unaffected (FR-019), and export failure must never become a request or health failure (FR-020).
-- [ ] T036 [US3] Declare an Application Insights resource in `src/SprintSync.AppHost/AppHost.cs` in publish mode and reference it from the `api` resource so `APPLICATIONINSIGHTS_CONNECTION_STRING` reaches the container app. Declare it in the AppHost, never by hand-editing `infra/`. Cost: workspace-based App Insights has no standing resource fee and bills on ingestion into the Log Analytics workspace `cae.module.bicep:30` already creates (research R5).
+- [x] T034 [P] [US3] Add the `Azure.Monitor.OpenTelemetry.AspNetCore` package to `src/SprintSync.ServiceDefaults/SprintSync.ServiceDefaults.csproj`. The exporter stub at `Extensions.cs:91-94` is commented out precisely because this package is absent, so this is a package addition, not just uncommenting.
+- [x] T035 [US3] Enable the Azure Monitor exporter in `AddOpenTelemetryExporters` in `src/SprintSync.ServiceDefaults/Extensions.cs`, gated on non-empty `APPLICATIONINSIGHTS_CONNECTION_STRING`. Absence must leave startup unaffected (FR-019), and export failure must never become a request or health failure (FR-020).
+- [x] T036 [US3] Declare an Application Insights resource in `src/SprintSync.AppHost/AppHost.cs` in publish mode and reference it from the `api` resource so `APPLICATIONINSIGHTS_CONNECTION_STRING` reaches the container app. Declare it in the AppHost, never by hand-editing `infra/`. Cost: workspace-based App Insights has no standing resource fee and bills on ingestion into the Log Analytics workspace `cae.module.bicep:30` already creates (research R5).
 
 ### Probe wiring (research R4)
 
-- [ ] T037 [US3] Add liveness and readiness probes to the container app template inside the **existing `api.PublishAsAzureContainerApp(...)` callback** in `src/SprintSync.AppHost/AppHost.cs:83-89`, alongside the `MinReplicas`/`MaxReplicas` settings already there. **Not `ConfigureInfrastructure`** — that is used for the SQL resource; the spec and handoff both name it wrongly (research R4). Liveness → `/alive`, readiness → `/ready`, both on the container's HTTP port; do not hardcode a port that could diverge from `api_containerport`.
-- [ ] T038 [P] [US3] Correct the stale constitution reference at `src/SprintSync.AppHost/AppHost.cs:3`, which cites "Principle X" for topology. Since 2026-08-22, Principle X is *Operable by Default*; topology is a Technology & Platform Constraint. The comment now cites Principle X to mean something it does not say, in the very file implementing Principle X (research R9).
-- [ ] T039 [US3] Run `azd infra gen --force` and confirm the regenerated `infra/` contains the probes and the Application Insights resource, and that `git diff` shows only intended changes. `infra/` is generated: if probes do not appear here, they were declared in the wrong place.
-- [ ] T040 [US3] Confirm `dotnet test` stays green and `scripts/check-idle-cost.*` still passes after the App Insights addition — no idle-billable resource may have crept in (FR-014).
+- [x] T037 [US3] Add liveness and readiness probes to the container app template inside the **existing `api.PublishAsAzureContainerApp(...)` callback** in `src/SprintSync.AppHost/AppHost.cs:83-89`, alongside the `MinReplicas`/`MaxReplicas` settings already there. **Not `ConfigureInfrastructure`** — that is used for the SQL resource; the spec and handoff both name it wrongly (research R4). Liveness → `/alive`, readiness → `/ready`, both on the container's HTTP port; do not hardcode a port that could diverge from `api_containerport`.
+- [x] T038 [P] [US3] Correct the stale constitution reference at `src/SprintSync.AppHost/AppHost.cs:3`, which cites "Principle X" for topology. Since 2026-08-22, Principle X is *Operable by Default*; topology is a Technology & Platform Constraint. The comment now cites Principle X to mean something it does not say, in the very file implementing Principle X (research R9).
+- [x] T039 [US3] Run `azd infra gen --force` and confirm the regenerated `infra/` contains the probes and the Application Insights resource, and that `git diff` shows only intended changes. `infra/` is generated: if probes do not appear here, they were declared in the wrong place.
+- [ ] T040 [US3] **(PARTIAL — cost-guard half done, `dotnet test` BLOCKED locally: Docker not running, so Testcontainers cannot start SQL. CI's backend job will run it.)** Confirm `dotnet test` stays green and `scripts/check-idle-cost.*` still passes after the App Insights addition — no idle-billable resource may have crept in (FR-014).
 
 ### Deploy-gated verification
 
@@ -179,6 +179,33 @@ tasks below target `/alive` and the **new** `/ready`. Pointing a readiness probe
 - [ ] T045 [US3] 💸 Confirm the readiness probe has **not** defeated database auto-pause — the database must still reach its paused state while a replica is alive. Failure here is a live cost breach, not a test failure (research R3).
 
 **Checkpoint**: The platform can see the service, and the cost posture survived making it visible.
+
+> **US3 code-half record (2026-08-22)** — T031–T039 complete; T040 partial.
+>
+> **Generated Bicep confirms the wiring reached the deploy** (T039). Both probes
+> emit with `port: int(api_containerport)` — the *same expression* the ingress
+> `targetPort` uses, because the AppHost binds `app.Configuration.Ingress.TargetPort`
+> rather than a literal, so the two cannot drift apart. `APPLICATIONINSIGHTS_CONNECTION_STRING`
+> flows from `insights_outputs_appinsightsconnectionstring`, and `infra/insights/`
+> is wired into `main.bicep` — so the cost guard classifies it `provision`, not
+> `none`.
+>
+> **Cost guard still green on the regenerated infra**, both twins, plus 15/15 on
+> the fixture suite. Adding Application Insights introduced no idle-billable
+> resource (FR-014).
+>
+> **Verified locally**: `StartupGateTests` 4/4 pass — the gate reports not-ready
+> before `MarkReady()`, ready after, and `MarkReady()` is idempotent.
+>
+> **NOT verified locally**: `HealthEndpointContractTests` (5 tests, incl. the
+> `/health`-404-in-Production tripwire) need Testcontainers, and **Docker is not
+> running on this machine**. They compile and are wired into the suite; CI's
+> backend job will execute them. Claiming them green here would be asserting
+> something unobserved.
+>
+> Package additions: `Azure.Monitor.OpenTelemetry.AspNetCore` 1.6.0
+> (ServiceDefaults — the exporter stub genuinely could not compile without it)
+> and `Aspire.Hosting.Azure.ApplicationInsights` 13.4.6 (AppHost).
 
 ---
 

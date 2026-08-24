@@ -61,6 +61,13 @@ module cae_acr 'cae-acr/cae-acr.module.bicep' = {
     location: location
   }
 }
+module insights 'insights/insights.module.bicep' = {
+  name: 'insights'
+  scope: rg
+  params: {
+    location: location
+  }
+}
 module sql 'sql/sql.module.bicep' = {
   name: 'sql'
   scope: rg
@@ -76,4 +83,5 @@ output CAE_AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN string = cae.outputs.
 output CAE_AZURE_CONTAINER_APPS_ENVIRONMENT_ID string = cae.outputs.AZURE_CONTAINER_APPS_ENVIRONMENT_ID
 output CAE_AZURE_CONTAINER_REGISTRY_ENDPOINT string = cae.outputs.AZURE_CONTAINER_REGISTRY_ENDPOINT
 output CAE_AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID string = cae.outputs.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID
+output INSIGHTS_APPINSIGHTSCONNECTIONSTRING string = insights.outputs.appInsightsConnectionString
 output SQL_SQLSERVERFQDN string = sql.outputs.sqlServerFqdn

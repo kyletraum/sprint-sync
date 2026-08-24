@@ -125,6 +125,15 @@ if (migrateOnStartup)
     }
 }
 
+// Startup work is done — the service can now serve requests, so readiness flips
+// and the platform may route traffic to this instance (Principle X, T033).
+//
+// This MUST stay after the migration/seed block: the whole point of readiness is
+// that the process is listening but not yet servable during that window. Moving
+// it earlier would make /ready return 200 while the schema is still being
+// applied, which is exactly the lie readiness exists to prevent.
+app.Services.GetRequiredService<StartupGate>().MarkReady();
+
 app.Run();
 
 // Exposed for WebApplicationFactory integration tests.

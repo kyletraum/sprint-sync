@@ -201,7 +201,7 @@ tasks below target `/alive` and the **new** `/ready`. Pointing a readiness probe
 - [x] T037 [US3] Add liveness and readiness probes to the container app template inside the **existing `api.PublishAsAzureContainerApp(...)` callback** in `src/SprintSync.AppHost/AppHost.cs:83-89`, alongside the `MinReplicas`/`MaxReplicas` settings already there. **Not `ConfigureInfrastructure`** — that is used for the SQL resource; the spec and handoff both name it wrongly (research R4). Liveness → `/alive`, readiness → `/ready`, both on the container's HTTP port; do not hardcode a port that could diverge from `api_containerport`.
 - [x] T038 [P] [US3] Correct the stale constitution reference at `src/SprintSync.AppHost/AppHost.cs:3`, which cites "Principle X" for topology. Since 2026-08-22, Principle X is *Operable by Default*; topology is a Technology & Platform Constraint. The comment now cites Principle X to mean something it does not say, in the very file implementing Principle X (research R9).
 - [x] T039 [US3] Run `azd infra gen --force` and confirm the regenerated `infra/` contains the probes and the Application Insights resource, and that `git diff` shows only intended changes. `infra/` is generated: if probes do not appear here, they were declared in the wrong place.
-- [ ] T040 [US3] **(PARTIAL — cost-guard half done, `dotnet test` BLOCKED locally: Docker not running, so Testcontainers cannot start SQL. CI's backend job will run it.)** Confirm `dotnet test` stays green and `scripts/check-idle-cost.*` still passes after the App Insights addition — no idle-billable resource may have crept in (FR-014).
+- [x] T040 [US3] Confirm `dotnet test` stays green and `scripts/check-idle-cost.*` still passes after the App Insights addition — no idle-billable resource may have crept in (FR-014).
 
 ### Deploy-gated verification
 
@@ -230,11 +230,22 @@ tasks below target `/alive` and the **new** `/ready`. Pointing a readiness probe
 > **Verified locally**: `StartupGateTests` 4/4 pass — the gate reports not-ready
 > before `MarkReady()`, ready after, and `MarkReady()` is idempotent.
 >
-> **NOT verified locally**: `HealthEndpointContractTests` (5 tests, incl. the
-> `/health`-404-in-Production tripwire) need Testcontainers, and **Docker is not
-> running on this machine**. They compile and are wired into the suite; CI's
-> backend job will execute them. Claiming them green here would be asserting
-> something unobserved.
+> **Now verified with Docker running (2026-08-22)** — T040 closed.
+>
+> Backend **67/67 pass**, up from the 56 baseline: 9 new tests, all confirmed
+> executed by name rather than inferred from a total.
+>
+> - `DetailedHealth_Is404InProduction` — the tripwire fires. `/health` genuinely
+>   404s on a Production-hosted API.
+> - `Readiness_IsExposedInProduction_AndReportsReadyAfterStartup` — `/ready`
+>   returns 200 in the *same* host. The two together are mutually confirming:
+>   were `/ready` unmapped it would 404 like `/health`, and this test would fail.
+>   Neither passes vacuously.
+> - `Liveness_IsExposedInProduction`, `Readiness_LeaksNoPerCheckDetail`,
+>   `ProbeEndpoints_RequireNoAuthentication`, and 4 `StartupGateTests` — all pass.
+>
+> Web: **5/5** vitest, `tsc --noEmit` clean, production build succeeds.
+> Cost guard: both twins green on the real repo, suite **18/18**.
 >
 > Package additions: `Azure.Monitor.OpenTelemetry.AspNetCore` 1.6.0
 > (ServiceDefaults — the exporter stub genuinely could not compile without it)

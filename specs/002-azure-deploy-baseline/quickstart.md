@@ -184,7 +184,21 @@ Free tier, so this adds no standing cost.
 
 Using that hostname:
 
-1. Set the API's permitted CORS origin and redeploy the API so it takes effect.
+1. Set the API's permitted CORS origin **through the azd environment**, then
+   redeploy the API so it takes effect:
+
+   ```powershell
+   azd env set AZURE_CORS_ALLOWED_ORIGINS https://<swa-hostname>
+   azd deploy api
+   ```
+
+   > Set it this way, **not** by editing the container app's environment
+   > directly. `api-containerapp.module.bicep` is azd's deploy-time module, so
+   > the next `azd deploy` rewrites `containers[0].env` wholesale and silently
+   > drops any value set out of band. The symptom is asymmetric and easy to
+   > misread: `curl` keeps returning 200 while only the browser preflight breaks,
+   > so it looks like a SPA bug.
+
 2. Add the hosted redirect URI to the web app registration from Step 2.
 
 > **The API has no CORS configuration by default.** Without this, sign-in appears

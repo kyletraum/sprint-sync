@@ -173,9 +173,18 @@ for file in $BICEP_FILES; do
   done
 
   # Dedicated ACA workload profiles bill per-node regardless of traffic.
-  if grep -qE "workloadProfileType[[:space:]]*:[[:space:]]*'" "$file" &&
-     ! grep -qE "workloadProfileType[[:space:]]*:[[:space:]]*'Consumption'" "$file"; then
-    fail "$file : uses a non-Consumption workload profile"
+  #
+  # Checked PER OCCURRENCE, never per file. `workloadProfiles` is an ARRAY, and
+  # infra/cae/cae.module.bicep already declares a Consumption entry — so the
+  # earlier whole-file form ("contains a profile AND contains no non-Consumption
+  # profile") was permanently satisfied by that one entry, leaving the rule dead
+  # on the exact tree it guards while still printing a pass. The PowerShell twin
+  # used a per-occurrence negative lookahead and caught what this missed, so the
+  # twins silently disagreed and no fixture covered the shape.
+  bad_profiles=$(grep -oE "workloadProfileType[[:space:]]*:[[:space:]]*'[^']*'" "$file" 2>/dev/null |
+                   grep -vF "'Consumption'" || true)
+  if [ -n "$bad_profiles" ]; then
+    fail "$file : declares a non-Consumption workload profile ($(printf '%s' "$bad_profiles" | tr '\n' ' '))"
   fi
 
   # SQL must be on the free serverless offer and auto-pause.

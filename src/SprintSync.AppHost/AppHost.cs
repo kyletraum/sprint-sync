@@ -84,6 +84,22 @@ var azureAdTenantId = builder.AddParameter("AzureAdTenantId");
 var azureAdClientId = builder.AddParameter("AzureAdClientId");
 var azureAdAudience = builder.AddParameter("AzureAdAudience");
 
+// The hosted SPA's origin, for the API's CORS allow-list (FR-030). Sourced the
+// same way as the Entra values above, and for the same reason: this must be a
+// real Bicep parameter flowing into the container app's env, so that `azd deploy`
+// re-applies it every time.
+//
+// M2 (committee round 1-2): the CORS policy originally read Cors:AllowedOrigins
+// with NOTHING supplying it — no parameter, no appsettings key, no generated env
+// entry — while four documents told the operator to set the variable by hand on
+// the container app. Because api-containerapp.module.bicep is azd's deploy-time
+// module, the next `azd deploy` PUTs containers[0].env wholesale and silently
+// drops any out-of-band value. The failure is asymmetric and easy to misdiagnose:
+// curl keeps returning 200, only the browser preflight breaks, and it looks like
+// a SPA bug. Set it with:
+//   azd env set AZURE_CORS_ALLOWED_ORIGINS https://<swa-hostname>
+var corsAllowedOrigins = builder.AddParameter("CorsAllowedOrigins");
+
 var api = builder.AddProject<Projects.SprintSync_Api>("api")
     .WithReference(db)
     .WaitFor(db)
@@ -99,7 +115,11 @@ var api = builder.AddProject<Projects.SprintSync_Api>("api")
     .WithEnvironment("AzureAd__Instance", azureAdInstance)
     .WithEnvironment("AzureAd__TenantId", azureAdTenantId)
     .WithEnvironment("AzureAd__ClientId", azureAdClientId)
-    .WithEnvironment("AzureAd__Audience", azureAdAudience);
+    .WithEnvironment("AzureAd__Audience", azureAdAudience)
+    // Index 0 of the Cors:AllowedOrigins array. .NET configuration binds
+    // Cors__AllowedOrigins__0 to string[0], so the API's named-origin policy gets
+    // its origin through the same deploy-time path as everything else (M2).
+    .WithEnvironment("Cors__AllowedOrigins__0", corsAllowedOrigins);
 
 // Supplies APPLICATIONINSIGHTS_CONNECTION_STRING to the deployed container app,
 // which is what switches the Azure Monitor exporter on in ServiceDefaults. Only
@@ -139,6 +159,41 @@ api.PublishAsAzureContainerApp((_, app) =>
     var probePort = app.Configuration.Ingress.TargetPort;
 
     var container = app.Template.Containers[0].Value!;
+
+    // STARTUP probe — added for M1 (committee round 1-2), and load-bearing.
+    //
+    // Nothing listens on the port until `app.Run()` in Program.cs, and the whole
+    // migration + seed block runs BEFORE that, synchronously. StartupMigrator
+    // waits up to 180s on sp_getapplock (LockTimeoutMilliseconds) with a 210s
+    // command timeout, and with minReplicas: 0 a cold start also pays an Azure SQL
+    // serverless resume first.
+    //
+    // Without this probe, liveness (5s + 3 x 30s) reaches its third failure at
+    // ~65s against a socket nothing is bound to, and ACA restarts the container
+    // — repeatedly, and well inside the window the migration lock is explicitly
+    // designed to wait through. The restart drops the connection, releases the
+    // session-scoped applock, and the replacement re-runs the DDL from scratch:
+    // a genuine crash loop, on the exact deploy path this feature exists to
+    // establish. This PR introduces probes where ARM previously applied none, so
+    // that failure would have been ours to create.
+    //
+    // While a startup probe is failing within its threshold, the platform does
+    // not run liveness or readiness. Budget: 10 + 30 x 10 = 310s, comfortably
+    // past the 210s command timeout plus a resume.
+    container.Probes.Add(new ContainerAppProbe
+    {
+        ProbeType = ContainerAppProbeType.Startup,
+        HttpGet = new ContainerAppHttpRequestInfo
+        {
+            Path = "/alive",
+            Port = probePort,
+            Scheme = ContainerAppHttpScheme.Http,
+        },
+        InitialDelaySeconds = 10,
+        PeriodSeconds = 10,
+        FailureThreshold = 30,
+    });
+
     container.Probes.Add(new ContainerAppProbe
     {
         ProbeType = ContainerAppProbeType.Liveness,

@@ -16,6 +16,7 @@ param AzureAdAudience string
 param AzureAdClientId string
 param AzureAdInstance string
 param AzureAdTenantId string
+param CorsAllowedOrigins string
 
 var tags = {
   'azd-env-name': environmentName

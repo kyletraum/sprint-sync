@@ -107,6 +107,15 @@ run_case orphan-only-zero-floor 1 \
 run_case min-replicas-one 1 \
   "minReplicas:1 on a deployed template: must FAIL"
 
+# M4 (committee round 1-2) — a dedicated workload profile alongside a compliant
+# Consumption one in the SAME array. The old whole-file rule was permanently
+# satisfied by the Consumption entry that infra/cae/cae.module.bicep already
+# carries, so the rule was dead on the real tree while still printing a pass, and
+# the twins silently disagreed because only PowerShell checked per occurrence.
+# No fixture had a workloadProfileType at all, so parity could not see it.
+run_case mixed-workload-profiles 1 \
+  "a dedicated workload profile beside a Consumption one in the same array: must FAIL on BOTH twins"
+
 # T016 — hosting is held to the same posture rules; the Free tier is enforced
 # rather than trusted. Also exercises a hook-deployed template outside infra/.
 run_case paid-static-web-app 1 \

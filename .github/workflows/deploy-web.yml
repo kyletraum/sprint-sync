@@ -84,5 +84,8 @@ jobs:
       - name: Remind about the origin chain
         run: |
           echo "Published. If sign-in succeeds but API calls fail in the browser"
-          echo "while curl works, the API's Cors__AllowedOrigins does not include"
-          echo "this Static Web App's origin (FR-030). curl does not enforce CORS."
+          echo "while curl works, the API's allow-list does not include this"
+          echo "Static Web App's origin (FR-030). curl does not enforce CORS."
+          echo ""
+          echo "Fix it through the azd environment, so it survives redeploys:"
+          echo "  azd env set AZURE_CORS_ALLOWED_ORIGINS <this-origin> && azd deploy api"

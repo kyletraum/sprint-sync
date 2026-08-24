@@ -1,7 +1,44 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: (none) -> 1.0.0  (initial ratification)
+Version change: 1.0.0 -> 1.1.0  (MINOR: one new principle + materially tightened
+deployment guidance)
+
+Rationale: The feature 001 review committee surfaced two obligations that were
+real but unwritten, and so had no gate to fail against:
+  1. Health probes and telemetry export were treated as optional P2 polish. A
+     deployed service you cannot probe or trace is not operable, and nothing in
+     v1.0.0 said so.
+  2. "Pre-deploy verification" reviewed the resources present under `infra/`
+     without asking whether they are actually deployed. An orphaned
+     `containerApps` module unreachable from `main.bicep` satisfied the cost
+     guard while contributing nothing to the running system — presence stood in
+     for deployment.
+
+Added:
+  - Principle X (Operable by Default) — liveness/readiness endpoints exposed and
+    wired as platform probes; OpenTelemetry export enabled when the environment
+    supplies a destination; failure to observe is a defect, not a nice-to-have.
+
+Modified:
+  - Deployment & Cost Constraints -> "Pre-deploy verification": the reviewed set
+    is now the resources applied by a *declared deploy path* (provision via
+    `main.bicep`, azd's per-service deploy module, or an `azure.yaml` hook), not
+    every `.bicep` file under `infra/`. Infrastructure on no path is a defect.
+    NOTE: an earlier draft of this amendment made bare reachability from
+    `main.bicep` the test. Verifying it against the repo disproved that — both
+    `infra/budget.bicep` (hook-deployed) and `infra/api/api-containerapp.module.bicep`
+    (azd deploy-time module) are unreachable from `main.bicep` yet correctly
+    deployed. The three-path form is what survived contact with the code.
+
+Templates / follow-ups:
+  - `.specify/templates/plan-template.md` references the Constitution Check
+    generically (no enumerated principle list) — no template edit required.
+  - `specs/001-org-tenant-context/tasks.md`: T057 becomes implementation of
+    Principle X, and T056 becomes enforcement of the tightened verification
+    rule, rather than free-floating P2 items.
+
+--- prior report: (none) -> 1.0.0 (initial ratification) ---
 Rationale: First adoption of the Sprint Sync constitution, restructured from the
 original 12-item draft into named, gate-referenceable principles.
 
@@ -129,6 +166,22 @@ Test data is produced by a deterministic seeder so fixtures are reproducible.
 guarantees a real client depends on. Isolation that isn't continuously proven is
 isolation you don't actually have.
 
+### X. Operable by Default
+A service that is deployed but cannot be probed or traced is not done.
+- Every service exposes a **liveness** and a **readiness** endpoint, and the
+  deployed platform is configured to actually call them — an exposed endpoint no
+  orchestrator probes proves nothing.
+- **OpenTelemetry export is enabled whenever the environment supplies a
+  destination** (e.g. `APPLICATIONINSIGHTS_CONNECTION_STRING`). Instrumentation
+  that is collected but never exported is not observability.
+- Probe wiring and the export destination are defined in the Aspire AppHost,
+  consistent with the AppHost-as-topology rule below, and MUST NOT introduce a
+  standing cost that violates the Deployment & Cost Constraints.
+**Rationale:** The first real incident is the wrong time to discover there is no
+signal. Probes are also what make `minReplicas = 0` safe — scale-from-zero and
+rolling revisions depend on the platform knowing when an instance is genuinely
+ready to take traffic.
+
 ## Technology & Platform Constraints
 
 - **Stack:** .NET / C# with .NET Aspire orchestration; React + TypeScript;
@@ -169,6 +222,23 @@ idle-billable resource (e.g. `Microsoft.Cache/redis`,
 `Microsoft.DBforPostgreSQL`, dedicated `workloadProfiles`) was added. A budget
 alert at $1 is kept as a backstop.
 
+The reviewed set is the resources that some **declared deploy path** actually
+applies — not every `.bicep` file present under `infra/`. There are three such
+paths, and a template is legitimate if it sits on any one of them:
+
+1. **Provision** — reachable from `infra/main.bicep` by module reference.
+2. **Service deploy** — the per-service module azd applies at `azd deploy`
+   (recognisable by its image parameter, which cannot exist at provision time;
+   its other parameters are fed by `main.bicep` outputs).
+3. **Declared hook** — a template invoked by a hook in `azure.yaml`.
+
+A `.bicep` file on **none** of these paths is dead infrastructure and MUST be
+wired in or deleted. Verification checks MUST NOT count a template toward a
+posture claim unless it sits on a deploy path, because presence under `infra/`
+would otherwise let the guard report a posture the running system does not have.
+Reachability from `main.bicep` alone is **not** the test — applying it as such
+falsely condemns paths 2 and 3.
+
 ## Governance
 
 This constitution supersedes ad-hoc practice. It is the authority the SpecKit
@@ -186,4 +256,4 @@ This constitution supersedes ad-hoc practice. It is the authority the SpecKit
   without such an exception is a defect to be reverted or amended, not
   grandfathered.
 
-**Version:** 1.0.0 | **Ratified:** 2026-07-27 | **Last Amended:** 2026-07-27
+**Version:** 1.1.0 | **Ratified:** 2026-07-27 | **Last Amended:** 2026-08-22

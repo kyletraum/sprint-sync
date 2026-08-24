@@ -190,16 +190,48 @@ tasks below target `/alive` and the **new** `/ready`. Pointing a readiness probe
 
 Contract: [contracts/cost-guard-cli.md](./contracts/cost-guard-cli.md). Classification model: [data-model.md](./data-model.md) §2.
 
-- [ ] T046 [US4] Implement three-path deploy classification in `scripts/check-idle-cost.sh`: **provision** (transitively reachable from `infra/main.bicep` via `module <name> '<relative-path>'`), **service-deploy** (declares `Microsoft.App/containerApps` *and* takes a container-image parameter), **hook** (path appears in an `azure.yaml` hook command). Classify every `.bicep` under the infra path before any posture check runs.
-- [ ] T047 [US4] Scope the posture checks to classified templates in `scripts/check-idle-cost.sh`: `saw_containerapp` and `saw_zero_floor` may be set **only** from templates on a deploy path, so presence under `infra/` can no longer substitute for deployment (FR-009). Preserve every existing fail-closed guarantee.
-- [ ] T048 [US4] Fail the guard on any template classified `none`, naming the specific file (FR-010, FR-013).
-- [ ] T049 [US4] Port T046–T048 to `scripts/check-idle-cost.ps1`, behaviourally identical (FR-012). CI runs the POSIX twin and developers run the Windows twin — divergence means a developer's green is not CI's green.
-- [ ] T050 [P] [US4] Verify **no false positives on the real repository**: the guard exits 0 with all eight templates classified — six provision, `api/api-containerapp.module.bicep` as service-deploy, `budget.bicep` as hook. These two are exactly what a naive reachability test would wrongly condemn (FR-011, research R6). A guard that fails every legitimate run gets disabled, which is worse than the bug it fixes.
-- [ ] T051 [P] [US4] Verify with a planted fixture that a `.bicep` on no deploy path, declaring a container app, **fails** the guard and is named in the output.
-- [ ] T052 [P] [US4] Verify that a no-path template cannot satisfy `saw_zero_floor` — if the only `minReplicas: 0` declaration lives in an unclassified template, the guard must fail rather than pass.
-- [ ] T053 [US4] Verify twin parity: both implementations produce identical verdicts and identical failure sets across every fixture in T050–T052.
+- [x] T046 [US4] Implement three-path deploy classification in `scripts/check-idle-cost.sh`: **provision** (transitively reachable from `infra/main.bicep` via `module <name> '<relative-path>'`), **service-deploy** (declares `Microsoft.App/containerApps` *and* takes a container-image parameter), **hook** (path appears in an `azure.yaml` hook command). Classify every `.bicep` under the infra path before any posture check runs.
+- [x] T047 [US4] Scope the posture checks to classified templates in `scripts/check-idle-cost.sh`: `saw_containerapp` and `saw_zero_floor` may be set **only** from templates on a deploy path, so presence under `infra/` can no longer substitute for deployment (FR-009). Preserve every existing fail-closed guarantee.
+- [x] T048 [US4] Fail the guard on any template classified `none`, naming the specific file (FR-010, FR-013).
+- [x] T049 [US4] Port T046–T048 to `scripts/check-idle-cost.ps1`, behaviourally identical (FR-012). CI runs the POSIX twin and developers run the Windows twin — divergence means a developer's green is not CI's green.
+- [x] T050 [P] [US4] Verify **no false positives on the real repository**: the guard exits 0 with all eight templates classified — six provision, `api/api-containerapp.module.bicep` as service-deploy, `budget.bicep` as hook. These two are exactly what a naive reachability test would wrongly condemn (FR-011, research R6). A guard that fails every legitimate run gets disabled, which is worse than the bug it fixes.
+- [x] T051 [P] [US4] Verify with a planted fixture that a `.bicep` on no deploy path, declaring a container app, **fails** the guard and is named in the output.
+- [x] T052 [P] [US4] Verify that a no-path template cannot satisfy `saw_zero_floor` — if the only `minReplicas: 0` declaration lives in an unclassified template, the guard must fail rather than pass.
+- [x] T053 [US4] Verify twin parity: both implementations produce identical verdicts and identical failure sets across every fixture in T050–T052.
 
 **Checkpoint**: The guard can no longer be satisfied by files that contribute nothing to the running system.
+
+> **US4 validation record (2026-08-22)** — complete and verified.
+>
+> Suite: `tests/cost-guard/run-tests.sh`, five fixtures, **15/15 assertions pass**,
+> both twins agreeing on every case. Run it with `sh tests/cost-guard/run-tests.sh`.
+>
+> | Fixture | Asserts | Verdict |
+> |---|---|---|
+> | `all-paths-ok` | no false positive on a service-deploy module or a hook-deployed template | exit 0 |
+> | `orphan-containerapp` | a container app on no deploy path fails, **named** | exit 1 |
+> | `orphan-only-zero-floor` | an unclassified template cannot satisfy `saw_zero_floor` | exit 1 |
+> | `min-replicas-one` | the original posture check still fires on deployed templates | exit 1 |
+> | `empty-infra` | fail-closed preserved | exit 1 |
+>
+> Real repository: both twins exit 0, classifying all eight templates —
+> six `provision`, `api/api-containerapp.module.bicep` as `service-deploy`,
+> `budget.bicep` as `hook`. Zero classify as `none`.
+>
+> **A real bug was found and fixed while building this.** The first
+> implementation of `norm_path` piped `printf '%s'` (no trailing newline) into
+> `while read`, so `read` hit EOF, the loop body never ran, and the function
+> returned **empty**. `in_set ""` then matched the empty line `printf` emits for
+> an empty set, so **every template classified as `provision`** and the guard
+> would have passed anything at all — the exact vacuous-pass failure mode US4
+> exists to eliminate. Caught by testing that hook detection was load-bearing
+> (removing `azure.yaml` must make `budget.bicep` fail) rather than by trusting
+> a green run. `in_set` now rejects empty needles explicitly, with a comment
+> saying why.
+>
+> **Deferred, recorded** (T016): whether the guard should extend its scan to
+> `infra-web/`. It currently scans `infra/` only, so the Static Web App's Free
+> tier would be trusted rather than machine-enforced.
 
 ---
 

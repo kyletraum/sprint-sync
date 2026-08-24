@@ -38,7 +38,7 @@ never hand-edit it; declare in the AppHost and run `azd infra gen`.
 
 ### Two defects found during task generation
 
-**1. Feature 001's T049 is falsely marked complete.** It reads *"Configure React
+**1. Feature 001's T044 is falsely marked complete.** It reads *"Configure React
 deployment to Azure Static Web Apps Free + `azd` wiring"* and is checked `[x]`, but
 **no Static Web Apps configuration exists anywhere in the repository** — no workflow,
 no Bicep, no azd service, no `swa-cli` config. `ci.yml`'s `web` job lints, tests and

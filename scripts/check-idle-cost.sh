@@ -28,6 +28,12 @@ set -eu
 
 INFRA_PATH="${1:-$(dirname "$0")/../infra}"
 AZURE_YAML="${2:-$(dirname "$0")/../azure.yaml}"
+# Hand-written infrastructure that cannot live in the generated tree. Scanned
+# too, so hosting is held to the same posture rules as everything else: a Free
+# Static Web App silently becoming Standard is a standing-cost regression, and
+# the point of this guard is that posture claims are machine-checked rather
+# than trusted (feature 002, T016).
+WEB_INFRA_PATH="${3:-$(dirname "$0")/../infra-web}"
 
 if [ ! -d "$INFRA_PATH" ]; then
   echo "No synthesized infrastructure at '$INFRA_PATH'."
@@ -36,6 +42,11 @@ if [ ! -d "$INFRA_PATH" ]; then
 fi
 
 BICEP_FILES=$(find "$INFRA_PATH" -name '*.bicep' 2>/dev/null || true)
+if [ -d "$WEB_INFRA_PATH" ]; then
+  WEB_FILES=$(find "$WEB_INFRA_PATH" -name '*.bicep' 2>/dev/null || true)
+  [ -n "$WEB_FILES" ] && BICEP_FILES="$BICEP_FILES
+$WEB_FILES"
+fi
 if [ -z "$BICEP_FILES" ]; then
   echo "No .bicep files under '$INFRA_PATH' — nothing to check."
   exit 1
@@ -181,6 +192,13 @@ for file in $BICEP_FILES; do
   if grep -qF 'Microsoft.ContainerRegistry/registries' "$file" &&
      grep -qE "name:[[:space:]]*'(Standard|Premium)'" "$file"; then
     fail "$file : container registry is not on the Basic SKU"
+  fi
+
+  # Static Web Apps must stay on Free: the constitution names that tier for the
+  # React app, and any other tier introduces a standing monthly charge.
+  if grep -qF 'Microsoft.Web/staticSites' "$file" &&
+     ! grep -qE "name:[[:space:]]*'Free'" "$file"; then
+    fail "$file : Static Web App is not on the Free SKU"
   fi
 done
 

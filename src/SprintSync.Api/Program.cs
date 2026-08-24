@@ -51,6 +51,37 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddSprintSyncAuth(builder.Configuration, builder.Environment);
 
+// Browser access for the hosted SPA (feature 002, FR-030). The web app is served
+// from Static Web Apps on its own origin, so every call it makes to this API is
+// cross-origin and fails at the browser's preflight check without this — while
+// curl, which does not enforce CORS, keeps working. That asymmetry makes the
+// failure confusing to diagnose, so it is configured explicitly rather than
+// discovered.
+//
+// NAMED ORIGINS ONLY. This is a credentialed, tenant-scoped API: AllowAnyOrigin
+// together with credentials is both a security hole and rejected outright by
+// browsers. Origins come from configuration (Cors:AllowedOrigins) so each
+// environment supplies its own without a code change; with none configured the
+// policy simply permits nothing, which is the correct default for an API whose
+// only browser client is a deployment artefact.
+var corsOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>() ?? [];
+
+builder.Services.AddCors(options =>
+    options.AddPolicy(SprintSyncCors.PolicyName, policy =>
+    {
+        if (corsOrigins.Length == 0)
+        {
+            return;
+        }
+
+        policy.WithOrigins(corsOrigins)
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    }));
+
 var app = builder.Build();
 
 // Uniform error contract (Principle III): unhandled exceptions and otherwise
@@ -63,6 +94,12 @@ app.MapDefaultEndpoints();
 
 // Published OpenAPI (Principle III) — always, not dev-only.
 app.MapOpenApi();
+
+// CORS runs before authentication so that preflight OPTIONS requests — which
+// browsers send without credentials — are answered rather than rejected as
+// unauthenticated. Placed after the error handlers so a CORS failure still
+// renders as ProblemDetails.
+app.UseCors(SprintSyncCors.PolicyName);
 
 // Pipeline order matters: authenticate, resolve the app user (JIT), resolve and
 // verify the ambient tenant, THEN authorize (so OrgMember sees the tenant).

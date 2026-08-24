@@ -41,7 +41,14 @@ param(
     [string] $InfraPath = "$PSScriptRoot/../infra",
 
     # azure.yaml, read to discover hook-deployed templates.
-    [string] $AzureYamlPath = "$PSScriptRoot/../azure.yaml"
+    [string] $AzureYamlPath = "$PSScriptRoot/../azure.yaml",
+
+    # Hand-written infrastructure that cannot live in the generated tree.
+    # Scanned too, so hosting is held to the same posture rules as everything
+    # else: a Free Static Web App silently becoming Standard is a standing-cost
+    # regression, and the point of this guard is that posture claims are
+    # machine-checked rather than trusted (feature 002, T016).
+    [string] $WebInfraPath = "$PSScriptRoot/../infra-web"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -52,7 +59,10 @@ if (-not (Test-Path $InfraPath)) {
     exit 1
 }
 
-$bicep = Get-ChildItem -Path $InfraPath -Recurse -Filter *.bicep -ErrorAction SilentlyContinue
+$bicep = @(Get-ChildItem -Path $InfraPath -Recurse -Filter *.bicep -ErrorAction SilentlyContinue)
+if (Test-Path $WebInfraPath) {
+    $bicep += @(Get-ChildItem -Path $WebInfraPath -Recurse -Filter *.bicep -ErrorAction SilentlyContinue)
+}
 if (-not $bicep) {
     Write-Host "No .bicep files under '$InfraPath' -- nothing to check."
     exit 1
@@ -174,6 +184,12 @@ foreach ($file in $bicep) {
     # Keep the registry on Basic so the ~$5/mo floor cannot silently grow.
     if ($text -match 'Microsoft\.ContainerRegistry/registries' -and $text -match "name\s*:\s*'(Standard|Premium)'") {
         $failures.Add("$relative : container registry is not on the Basic SKU")
+    }
+
+    # Static Web Apps must stay on Free: the constitution names that tier for the
+    # React app, and any other tier introduces a standing monthly charge.
+    if ($text -match 'Microsoft\.Web/staticSites' -and $text -notmatch "name\s*:\s*'Free'") {
+        $failures.Add("$relative : Static Web App is not on the Free SKU")
     }
 }
 

@@ -37,8 +37,16 @@ run_case() { # name, expected_exit, why
   echo ""
   echo "$name — $why"
 
+  # Fixtures must be hermetic. Both guards default their web-infra path to the
+  # REAL repository's infra-web/, so it has to be overridden here — otherwise
+  # every fixture also scans the real Static Web App template, which the
+  # fixture's own azure.yaml does not reference, and it classifies as dead
+  # infrastructure. A fixture that wants web infra puts it in web/.
+  web_dir="$dir/web"
+  [ -d "$web_dir" ] || web_dir="$dir/__no_web__"
+
   set +e
-  sh "$SH_GUARD" "$dir/infra" "$dir/azure.yaml" >"$dir/.sh.out" 2>&1
+  sh "$SH_GUARD" "$dir/infra" "$dir/azure.yaml" "$web_dir" >"$dir/.sh.out" 2>&1
   sh_exit=$?
   set -e
 
@@ -57,7 +65,8 @@ run_case() { # name, expected_exit, why
 
   set +e
   "$PWSH" -NoProfile -NonInteractive -File "$PS_GUARD" \
-    -InfraPath "$dir/infra" -AzureYamlPath "$dir/azure.yaml" >"$dir/.ps.out" 2>&1
+    -InfraPath "$dir/infra" -AzureYamlPath "$dir/azure.yaml" \
+    -WebInfraPath "$web_dir" >"$dir/.ps.out" 2>&1
   ps_exit=$?
   set -e
 
@@ -97,6 +106,11 @@ run_case orphan-only-zero-floor 1 \
 # Regression: the original posture check still works on deployed templates.
 run_case min-replicas-one 1 \
   "minReplicas:1 on a deployed template: must FAIL"
+
+# T016 — hosting is held to the same posture rules; the Free tier is enforced
+# rather than trusted. Also exercises a hook-deployed template outside infra/.
+run_case paid-static-web-app 1 \
+  "a Static Web App on a paid tier: must FAIL even though it is legitimately hook-deployed"
 
 # Fail-closed: nothing to check is not a pass.
 run_case empty-infra 1 \

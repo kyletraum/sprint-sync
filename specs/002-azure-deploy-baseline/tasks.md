@@ -319,7 +319,14 @@ Contract: [contracts/cost-guard-cli.md](./contracts/cost-guard-cli.md). Classifi
 > `push` to `main`. **Pushing this feature branch runs nothing** — verified: five
 > commits pushed to `002-azure-deploy-baseline` produced zero workflow runs.
 >
-> So neither T054 nor T055 can be done by pushing. Both need a pull request,
+> **Draft PRs did not trigger it either.** PR #5 was opened as a draft and no run
+> appeared; marking it ready for review did not help, because `ready_for_review`
+> is not among the default `pull_request` activity types (`opened`,
+> `synchronize`, `reopened`). A push to the PR branch fires `synchronize`, which
+> does. Practical rule for this repo: **CI engages on a non-draft PR, or on a
+> push to a branch that already has one open.**
+>
+> So neither T054 nor T055 can be done by pushing alone. Both need a pull request,
 > which is an outward-facing action and is left for an explicit decision rather
 > than taken unilaterally:
 >

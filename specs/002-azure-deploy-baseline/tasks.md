@@ -335,6 +335,30 @@ Contract: [contracts/cost-guard-cli.md](./contracts/cost-guard-cli.md). Classifi
 > - **T054** — a separate throwaway PR carrying one deliberately broken test,
 >   confirmed red, then closed unmerged.
 >
+> **BLOCKED (2026-08-22): GitHub Actions is not running for this repository.**
+> PR #5 was opened against `main` to close T055, and **no Actions check suite was
+> created at all**. Diagnosed as far as the API allows:
+>
+> | Checked | Result |
+> |---|---|
+> | Repo visibility / Actions enabled | public; `enabled: true`, `allowed_actions: all` |
+> | CI workflow state | id 339372008, **active** |
+> | `ci.yml` + `deploy-web.yml` on the remote branch | both present, both valid YAML |
+> | Triggers vs PR | `pull_request: branches:[main]`; PR #5 base **is** `main` |
+> | PR state | open, **not** draft, head sha matches remote |
+> | Events fired | `opened`, `ready_for_review`, `synchronize` ×2, `closed`, `reopened` |
+> | GitHub Actions platform | operational, no incidents |
+> | Last Actions run repo-wide | 13:43Z (the constitution merge) — nothing since |
+>
+> The decisive detail: a **`claude` app check suite IS queued on the same commit**,
+> so GitHub is receiving the events — only Actions is not reacting to them. That
+> points at an account- or repo-level Actions state that the API reports as
+> healthy, and needs the GitHub UI to resolve.
+>
+> **T054 is deliberately NOT attempted while this holds.** A throwaway PR with a
+> broken test would show no checks, which is "CI did not run", not "CI went red" —
+> it would prove nothing and leave a junk PR behind. Do it once Actions works.
+>
 > Two CI changes are already committed and will be exercised whenever a PR runs:
 > the `cost-guard` job now also runs `tests/cost-guard/run-tests.sh`, and the
 > `infra-drift` azd pin was raised 1.19.0 → 1.31.2 to match the version that

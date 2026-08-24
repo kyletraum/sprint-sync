@@ -299,8 +299,29 @@ Contract: [contracts/cost-guard-cli.md](./contracts/cost-guard-cli.md). Classifi
 
 **Goal**: CI is trustworthy evidence. **Mostly already satisfied** — run 32537061874 on PR #3 ran all four jobs green with logs read to confirm non-vacuous work. Only the below remain.
 
-- [ ] T054 [US5] Prove CI can **fail**: open a throwaway pull request containing one deliberately broken test, confirm the pipeline goes red, then close it without merging (research R8). A green pipeline nobody has seen go red is indistinguishable from one that always passes — this is the assumption under test, so it cannot be assumed.
-- [ ] T055 [US5] Re-confirm CI passes with this feature's changes applied, paying particular attention to the `cost-guard` job (whose behaviour Phase 6 changes) and the `infra-drift` job (which must accept the regenerated `infra/` from T039).
+- [ ] T054 [US5] **(BLOCKED on an outward action — needs a PR; see the CI-trigger note below)** Prove CI can **fail**: open a throwaway pull request containing one deliberately broken test, confirm the pipeline goes red, then close it without merging (research R8). A green pipeline nobody has seen go red is indistinguishable from one that always passes — this is the assumption under test, so it cannot be assumed.
+- [ ] T055 [US5] **(BLOCKED on an outward action — needs a PR; see the CI-trigger note below)** Re-confirm CI passes with this feature's changes applied, paying particular attention to the `cost-guard` job (whose behaviour Phase 6 changes) and the `infra-drift` job (which must accept the regenerated `infra/` from T039).
+
+> **CI-trigger finding (2026-08-22)** — affects both tasks above.
+>
+> `.github/workflows/ci.yml` triggers only on `pull_request` into `main` and
+> `push` to `main`. **Pushing this feature branch runs nothing** — verified: five
+> commits pushed to `002-azure-deploy-baseline` produced zero workflow runs.
+>
+> So neither T054 nor T055 can be done by pushing. Both need a pull request,
+> which is an outward-facing action and is left for an explicit decision rather
+> than taken unilaterally:
+>
+> - **T055** — open the PR for this feature branch. Natural, but the branch is
+>   only a third implemented, so a PR now is early.
+> - **T054** — a separate throwaway PR carrying one deliberately broken test,
+>   confirmed red, then closed unmerged.
+>
+> Two CI changes are already committed and will be exercised whenever a PR runs:
+> the `cost-guard` job now also runs `tests/cost-guard/run-tests.sh`, and the
+> `infra-drift` azd pin was raised 1.19.0 → 1.31.2 to match the version that
+> generated the committed `infra/` — otherwise that job would diff two different
+> generators and warn on every run.
 
 **Checkpoint**: CI protects what the other stories established.
 

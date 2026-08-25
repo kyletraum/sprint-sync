@@ -308,10 +308,10 @@ Contract: [contracts/cost-guard-cli.md](./contracts/cost-guard-cli.md). Classifi
 
 ## Phase 7: User Story 5 — Continuous integration runs for real (P3)
 
-**Goal**: CI is trustworthy evidence. **Mostly already satisfied** — run 32537061874 on PR #3 ran all four jobs green with logs read to confirm non-vacuous work. Only the below remain.
+**Goal**: CI is trustworthy evidence. **T055 done** — run 32828641212 on `304fb65`, four jobs green, job logs read to confirm non-vacuous work. **T054 is the one thing left, and it is the load-bearing half**: every run recorded on this repository so far is green, and a pipeline nobody has watched go red is indistinguishable from one that always passes.
 
-- [ ] T054 [US5] **(BLOCKED on an outward action — needs a PR; see the CI-trigger note below)** Prove CI can **fail**: open a throwaway pull request containing one deliberately broken test, confirm the pipeline goes red, then close it without merging (research R8). A green pipeline nobody has seen go red is indistinguishable from one that always passes — this is the assumption under test, so it cannot be assumed.
-- [ ] T055 [US5] **(BLOCKED on an outward action — needs a PR; see the CI-trigger note below)** Re-confirm CI passes with this feature's changes applied, paying particular attention to the `cost-guard` job (whose behaviour Phase 6 changes) and the `infra-drift` job (which must accept the regenerated `infra/` from T039).
+- [ ] T054 [US5] **(needs a throwaway PR — outward-facing; see the CI-trigger note below)** Prove CI can **fail**: open a throwaway pull request containing one deliberately broken test, confirm the pipeline goes red, then close it without merging (research R8). A green pipeline nobody has seen go red is indistinguishable from one that always passes — this is the assumption under test, so it cannot be assumed.
+- [x] T055 [US5] Re-confirm CI passes with this feature's changes applied, paying particular attention to the `cost-guard` job (whose behaviour Phase 6 changes) and the `infra-drift` job (which must accept the regenerated `infra/` from T039). **Done 2026-08-25** — run 32828641212 on `304fb65`, all four jobs green. Verified from the job logs rather than the summary tick: `cost-guard` ran `sh tests/cost-guard/run-tests.sh` and reported `passed: 21   failed: 0`, of which **7 are twin-parity assertions with no skips**, so pwsh was present on the runner and both twins really executed — FR-012 parity is now machine-checked on the path CI enforces, having been false as recently as committee round 1. `infra-drift` accepted the regenerated `infra/` in 35s.
 
 > **CI-trigger finding (2026-08-22)** — affects both tasks above.
 >
@@ -335,9 +335,12 @@ Contract: [contracts/cost-guard-cli.md](./contracts/cost-guard-cli.md). Classifi
 > - **T054** — a separate throwaway PR carrying one deliberately broken test,
 >   confirmed red, then closed unmerged.
 >
-> **BLOCKED (2026-08-22): GitHub Actions is not running for this repository.**
-> PR #5 was opened against `main` to close T055, and **no Actions check suite was
-> created at all**. Diagnosed as far as the API allows:
+> **RESOLVED (2026-08-25): Actions began running again on its own.**
+>
+> Between 2026-08-22 and 2026-08-24 this repository produced **no Actions check
+> suite for any event**. PR #5 was opened against `main` to close T055 and drew
+> nothing. It was diagnosed as far as the API allows, and every observable was
+> healthy:
 >
 > | Checked | Result |
 > |---|---|
@@ -346,18 +349,26 @@ Contract: [contracts/cost-guard-cli.md](./contracts/cost-guard-cli.md). Classifi
 > | `ci.yml` + `deploy-web.yml` on the remote branch | both present, both valid YAML |
 > | Triggers vs PR | `pull_request: branches:[main]`; PR #5 base **is** `main` |
 > | PR state | open, **not** draft, head sha matches remote |
-> | Events fired | `opened`, `ready_for_review`, `synchronize` ×2, `closed`, `reopened` |
+> | Events fired | `opened`, `ready_for_review`, `synchronize` x2, `closed`, `reopened` |
 > | GitHub Actions platform | operational, no incidents |
-> | Last Actions run repo-wide | 13:43Z (the constitution merge) — nothing since |
+> | Last Actions run repo-wide | 13:43Z (the constitution merge) - nothing since |
 >
-> The decisive detail: a **`claude` app check suite IS queued on the same commit**,
-> so GitHub is receiving the events — only Actions is not reacting to them. That
-> points at an account- or repo-level Actions state that the API reports as
-> healthy, and needs the GitHub UI to resolve.
+> The decisive detail at the time: a **`claude` app check suite WAS queued on the
+> same commit**, so GitHub was delivering the events and only Actions was not
+> reacting to them.
 >
-> **T054 is deliberately NOT attempted while this holds.** A throwaway PR with a
-> broken test would show no checks, which is "CI did not run", not "CI went red" —
-> it would prove nothing and leave a junk PR behind. Do it once Actions works.
+> **It recovered without intervention.** Runs resumed 2026-08-24 (32730634931,
+> then 32738890425) and have continued since (32828641212 on 2026-08-25). **No
+> cause was ever identified, and nothing was changed to fix it.** This is recorded
+> rather than deleted because an unexplained outage that cleared itself can
+> recur: if Actions goes silent again, start from the table above instead of
+> re-deriving it, and treat "the API reports everything as healthy" as the
+> expected finding rather than an informative one.
+>
+> T054 was deliberately not attempted while the outage held - a throwaway PR with
+> a broken test would have shown *no* checks, which is "CI did not run", not "CI
+> went red". That proves nothing and leaves a junk PR behind. **That objection no
+> longer applies.**
 >
 > Two CI changes are already committed and will be exercised whenever a PR runs:
 > the `cost-guard` job now also runs `tests/cost-guard/run-tests.sh`, and the

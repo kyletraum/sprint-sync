@@ -67,7 +67,14 @@ public sealed class SprintSyncApiFactory(string connectionString) : WebApplicati
 /// Entra is replaced with the test scheme as usual; the API's Production
 /// fail-fast guard would otherwise refuse to start without real AzureAd values.
 /// </summary>
-public sealed class ProductionApiFactory(string connectionString) : WebApplicationFactory<Program>
+/// <param name="configureTestServices">
+/// Optional extra test-only registrations, applied after the standard ones.
+/// Used by ProbeTracingTests to install an in-memory span exporter, which is the
+/// only way to observe what the OpenTelemetry pipeline actually exports.
+/// </param>
+public sealed class ProductionApiFactory(
+    string connectionString,
+    Action<IServiceCollection>? configureTestServices = null) : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -90,6 +97,8 @@ public sealed class ProductionApiFactory(string connectionString) : WebApplicati
             services.AddAuthentication(TestAuthHandler.SchemeName)
                 .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
                     TestAuthHandler.SchemeName, _ => { });
+
+            configureTestServices?.Invoke(services);
         });
     }
 }

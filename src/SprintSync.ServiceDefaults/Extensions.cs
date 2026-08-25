@@ -65,10 +65,23 @@ public static class Extensions
             {
                 tracing.AddSource(builder.Environment.ApplicationName)
                     .AddAspNetCoreInstrumentation(tracing =>
-                        // Exclude health check requests from tracing
+                        // Exclude health check requests from tracing.
+                        //
+                        // All THREE probe paths, not just the two the Aspire
+                        // template ships. /ready was added in this feature and was
+                        // initially missed here (S6, committee round 1-2) — and it
+                        // is the one that matters most: the container app polls
+                        // readiness at periodSeconds: 5 against liveness at 30, so
+                        // it is SIX TIMES the volume of the probe that was already
+                        // excluded. That is ~720 spans/hour per warm replica, all
+                        // of them shipped by UseAzureMonitor(), which would have
+                        // dominated App Insights transaction search and buried real
+                        // request traces — the opposite of what Principle X wants
+                        // telemetry for. It also bills.
                         tracing.Filter = context =>
                             !context.Request.Path.StartsWithSegments(HealthEndpointPath)
                             && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath)
+                            && !context.Request.Path.StartsWithSegments(ReadinessEndpointPath)
                     )
                     // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
                     //.AddGrpcClientInstrumentation()

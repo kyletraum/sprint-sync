@@ -17,6 +17,9 @@
       "AzureAdTenantId": {
         "value": "${AZURE_AZURE_AD_TENANT_ID}"
       },
+      "CorsAllowedOrigins": {
+        "value": "${AZURE_CORS_ALLOWED_ORIGINS}"
+      },
       "environmentName": {
         "value": "${AZURE_ENV_NAME}"
       },

@@ -1,3 +1,4 @@
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,6 +18,7 @@ public static class Extensions
 {
     private const string HealthEndpointPath = "/health";
     private const string AlivenessEndpointPath = "/alive";
+    private const string ReadinessEndpointPath = "/ready";
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
@@ -63,10 +65,23 @@ public static class Extensions
             {
                 tracing.AddSource(builder.Environment.ApplicationName)
                     .AddAspNetCoreInstrumentation(tracing =>
-                        // Exclude health check requests from tracing
+                        // Exclude health check requests from tracing.
+                        //
+                        // All THREE probe paths, not just the two the Aspire
+                        // template ships. /ready was added in this feature and was
+                        // initially missed here (S6, committee round 1-2) — and it
+                        // is the one that matters most: the container app polls
+                        // readiness at periodSeconds: 5 against liveness at 30, so
+                        // it is SIX TIMES the volume of the probe that was already
+                        // excluded. That is ~720 spans/hour per warm replica, all
+                        // of them shipped by UseAzureMonitor(), which would have
+                        // dominated App Insights transaction search and buried real
+                        // request traces — the opposite of what Principle X wants
+                        // telemetry for. It also bills.
                         tracing.Filter = context =>
                             !context.Request.Path.StartsWithSegments(HealthEndpointPath)
                             && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath)
+                            && !context.Request.Path.StartsWithSegments(ReadinessEndpointPath)
                     )
                     // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
                     //.AddGrpcClientInstrumentation()
@@ -87,21 +102,32 @@ public static class Extensions
             builder.Services.AddOpenTelemetry().UseOtlpExporter();
         }
 
-        // Uncomment the following lines to enable the Azure Monitor exporter (requires the Azure.Monitor.OpenTelemetry.AspNetCore package)
-        //if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
-        //{
-        //    builder.Services.AddOpenTelemetry()
-        //       .UseAzureMonitor();
-        //}
+        // Azure Monitor export (Principle X). Gated on the connection string the
+        // AppHost supplies to the deployed container app: with no destination
+        // configured — local `dotnet run`, integration tests, CI — the service
+        // starts and serves exactly as before (FR-019). Telemetry that cannot be
+        // exported must never become an availability problem (FR-020).
+        if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+        {
+            builder.Services.AddOpenTelemetry().UseAzureMonitor();
+        }
 
         return builder;
     }
 
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
+        // Readiness is a distinct signal from liveness (Principle X): liveness
+        // failure means restart, readiness failure means withhold traffic. The
+        // gate is a singleton so the endpoint and the startup path share state.
+        builder.Services.AddSingleton<StartupGate>();
+
         builder.Services.AddHealthChecks()
             // Add a default liveness check to ensure app is responsive
-            .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
+            .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"])
+            // Readiness: not ready until startup work (migration, seeding) is done.
+            // Deliberately performs NO database access — see StartupGate.
+            .AddCheck<StartupGateHealthCheck>("startup", tags: ["ready"]);
 
         return builder;
     }
@@ -110,16 +136,30 @@ public static class Extensions
     {
         // Liveness (tagged "live", returns no detail) is exposed in every
         // environment so Azure Container Apps probes work in Production (P2-17).
-        // The detailed readiness endpoint stays Development-only for the security
-        // reason noted here: https://aka.ms/aspire/healthchecks
         app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
         {
             Predicate = r => r.Tags.Contains("live")
         });
 
+        // Readiness, exposed in EVERY environment because the ACA readiness probe
+        // runs in Production (Principle X). It returns status only — no per-check
+        // detail, no exception text, no dependency names — which is exactly what
+        // makes it safe here while /health below is not.
+        //
+        // Do NOT point a probe at /health: it is Development-only, so in Azure it
+        // 404s, every probe fails, the revision never goes Ready, and the
+        // deployment hangs or rolls back. See specs/002-azure-deploy-baseline/
+        // research.md R2 and contracts/health-endpoints.md.
+        app.MapHealthChecks(ReadinessEndpointPath, new HealthCheckOptions
+        {
+            Predicate = r => r.Tags.Contains("ready")
+        });
+
         if (app.Environment.IsDevelopment())
         {
             // All health checks must pass for the app to be considered ready.
+            // Development-only for the security reason noted here:
+            // https://aka.ms/aspire/healthchecks — it returns per-check detail.
             app.MapHealthChecks(HealthEndpointPath);
         }
 

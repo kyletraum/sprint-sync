@@ -1,0 +1,5 @@
+name: fixture
+hooks:
+  postprovision:
+    posix:
+      run: az deployment group create -f infra/budget.bicep

@@ -1,0 +1,91 @@
+# Builds and publishes the React SPA to Azure Static Web Apps (feature 002,
+# US1 / FR-027, FR-029, FR-032).
+#
+# Deliberately manual (workflow_dispatch) rather than push-triggered: the build
+# bakes in the deployed API URL and the identity tenant settings, so publishing
+# on every push to main would republish whatever those secrets happened to hold.
+# Promote to a push trigger once there is more than one environment and the
+# values are unambiguous.
+#
+# BUILD-TIME, NOT RUNTIME (research R12). Vite inlines every VITE_* value into
+# the bundle at build. They cannot be injected afterwards the way container
+# environment variables can, so changing the tenant or the API URL requires a
+# REBUILD AND REDEPLOY, not a configuration edit. This is the usual explanation
+# for "I changed the setting and nothing happened".
+#
+# ORDERING (research R11). This workflow is the last step of a chain that cannot
+# be collapsed: the Static Web App must exist before its hostname is known; the
+# hostname is required by the API's CORS policy and the Entra redirect URI; and
+# the deployed API URL is required here. Running this before the API is deployed
+# produces a bundle pointing at nothing.
+
+name: Deploy web
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'Deployed API base URL, e.g. https://api.<region>.azurecontainerapps.io/api/v1'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and publish SPA
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/sprint-sync-web/package-lock.json
+
+      - name: Install
+        working-directory: web/sprint-sync-web
+        run: npm ci
+
+      - name: Build
+        working-directory: web/sprint-sync-web
+        env:
+          # Sourced from repository secrets — never committed (FR-029). These are
+          # not secrets in the cryptographic sense (they ship in a public bundle),
+          # but they identify a specific tenant and deployment, so they are
+          # supplied per-environment rather than checked in.
+          VITE_ENTRA_AUTHORITY: ${{ secrets.VITE_ENTRA_AUTHORITY }}
+          VITE_ENTRA_CLIENT_ID: ${{ secrets.VITE_ENTRA_CLIENT_ID }}
+          VITE_API_SCOPE: ${{ secrets.VITE_API_SCOPE }}
+          # ABSOLUTE, not the relative /api/v1 default. The SPA is served from the
+          # Static Web Apps origin while the API lives on its own, so a relative
+          # base URL would resolve against the SPA host and 404. This is the same
+          # cross-origin reality that makes the API's CORS policy necessary.
+          VITE_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: |
+          test -n "$VITE_ENTRA_AUTHORITY" || { echo "::error::VITE_ENTRA_AUTHORITY secret is not set"; exit 1; }
+          test -n "$VITE_ENTRA_CLIENT_ID" || { echo "::error::VITE_ENTRA_CLIENT_ID secret is not set"; exit 1; }
+          test -n "$VITE_API_SCOPE"       || { echo "::error::VITE_API_SCOPE secret is not set"; exit 1; }
+          npm run build
+
+      - name: Publish to Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: web/sprint-sync-web/dist
+          skip_app_build: true
+          skip_api_build: true
+
+      - name: Remind about the origin chain
+        run: |
+          echo "Published. If sign-in succeeds but API calls fail in the browser"
+          echo "while curl works, the API's allow-list does not include this"
+          echo "Static Web App's origin (FR-030). curl does not enforce CORS."
+          echo ""
+          echo "Fix it through the azd environment, so it survives redeploys:"
+          echo "  azd env set AZURE_CORS_ALLOWED_ORIGINS <this-origin> && azd deploy api"

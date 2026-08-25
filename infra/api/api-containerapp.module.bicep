@@ -21,6 +21,10 @@ param azureadclientid_value string
 
 param azureadaudience_value string
 
+param corsallowedorigins_value string
+
+param insights_outputs_appinsightsconnectionstring string
+
 param api_identity_outputs_clientid string
 
 param cae_outputs_azure_container_registry_endpoint string
@@ -54,6 +58,41 @@ resource api 'Microsoft.App/containerApps@2025-10-02-preview' = {
     template: {
       containers: [
         {
+          probes: [
+            {
+              failureThreshold: 30
+              httpGet: {
+                path: '/alive'
+                port: int(api_containerport)
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 10
+              periodSeconds: 10
+              type: 'Startup'
+            }
+            {
+              failureThreshold: 3
+              httpGet: {
+                path: '/alive'
+                port: int(api_containerport)
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 5
+              periodSeconds: 30
+              type: 'Liveness'
+            }
+            {
+              failureThreshold: 30
+              httpGet: {
+                path: '/ready'
+                port: int(api_containerport)
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 3
+              periodSeconds: 5
+              type: 'Readiness'
+            }
+          ]
           image: api_containerimage
           name: 'api'
           env: [
@@ -116,6 +155,14 @@ resource api 'Microsoft.App/containerApps@2025-10-02-preview' = {
             {
               name: 'AzureAd__Audience'
               value: azureadaudience_value
+            }
+            {
+              name: 'Cors__AllowedOrigins__0'
+              value: corsallowedorigins_value
+            }
+            {
+              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+              value: insights_outputs_appinsightsconnectionstring
             }
             {
               name: 'AZURE_CLIENT_ID'

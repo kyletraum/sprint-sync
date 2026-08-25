@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Pre-deploy cost guard (constitution Principle 12, task T045).
+    Pre-deploy cost guard (constitution: Deployment & Cost Constraints).
 
 .DESCRIPTION
     Refuses the deploy if anything in the synthesized infrastructure would bill
@@ -13,13 +13,42 @@
       * no always-on resource (Redis, Service Bus, dedicated workload profiles,
         Cosmos, PostgreSQL flexible server, AKS) appears at all
 
+    Deploy-path classification (constitution v1.1.0, feature 002 US4): posture
+    checks are verified against templates that are ACTUALLY DEPLOYED, so a file's
+    mere presence under infra/ can no longer satisfy them. Three paths count as
+    deployed:
+
+      provision       reachable from main.bicep by transitive `module` reference
+      service-deploy  azd's per-service module -- declares a container app AND
+                      takes a container-image parameter, which cannot exist at
+                      provision time, which is exactly why it is not in main.bicep
+      hook            referenced by a hook command in azure.yaml
+
+    A template on NONE of these is dead infrastructure and fails the check.
+
+    Reachability alone is NOT the test. Applying it as such condemns two correct
+    templates in this repository -- the azd service-deploy module and the
+    hook-deployed budget -- and a guard that fails every legitimate run gets
+    disabled, which is worse than the bug it fixes.
+
     Wired into `azd up` as a preprovision hook, so it runs whether or not anyone
-    remembers to.
+    remembers to. Windows twin of check-idle-cost.sh; the two MUST reach
+    identical verdicts (tests/cost-guard/run-tests.sh asserts this).
 #>
 [CmdletBinding()]
 param(
     # Where azd/Aspire wrote the Bicep. Defaults to azd's own output location.
-    [string] $InfraPath = "$PSScriptRoot/../infra"
+    [string] $InfraPath = "$PSScriptRoot/../infra",
+
+    # azure.yaml, read to discover hook-deployed templates.
+    [string] $AzureYamlPath = "$PSScriptRoot/../azure.yaml",
+
+    # Hand-written infrastructure that cannot live in the generated tree.
+    # Scanned too, so hosting is held to the same posture rules as everything
+    # else: a Free Static Web App silently becoming Standard is a standing-cost
+    # regression, and the point of this guard is that posture claims are
+    # machine-checked rather than trusted (feature 002, T016).
+    [string] $WebInfraPath = "$PSScriptRoot/../infra-web"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,10 +59,73 @@ if (-not (Test-Path $InfraPath)) {
     exit 1
 }
 
-$bicep = Get-ChildItem -Path $InfraPath -Recurse -Filter *.bicep -ErrorAction SilentlyContinue
+$bicep = @(Get-ChildItem -Path $InfraPath -Recurse -Filter *.bicep -ErrorAction SilentlyContinue)
+if (Test-Path $WebInfraPath) {
+    $bicep += @(Get-ChildItem -Path $WebInfraPath -Recurse -Filter *.bicep -ErrorAction SilentlyContinue)
+}
 if (-not $bicep) {
     Write-Host "No .bicep files under '$InfraPath' -- nothing to check."
     exit 1
+}
+
+# --- path normalisation so a module reference and the enumerated file compare equal
+function Get-NormalPath([string] $Path) {
+    return [System.IO.Path]::GetFullPath($Path).Replace('\', '/')
+}
+
+# --- path 1: provision -- transitive closure from main.bicep -----------------
+$reachable = [System.Collections.Generic.HashSet[string]]::new(
+    [System.StringComparer]::OrdinalIgnoreCase)
+
+$mainBicep = Join-Path $InfraPath 'main.bicep'
+if (Test-Path $mainBicep) {
+    $queue = [System.Collections.Generic.Queue[string]]::new()
+    $queue.Enqueue((Get-NormalPath $mainBicep))
+    [void]$reachable.Add((Get-NormalPath $mainBicep))
+
+    while ($queue.Count -gt 0) {
+        $current = $queue.Dequeue()
+        if (-not (Test-Path $current)) { continue }
+        $currentDir = Split-Path -Parent $current
+        $body = Get-Content -Path $current -Raw
+        foreach ($m in [regex]::Matches($body, "(?m)^\s*module\s+[A-Za-z0-9_]+\s+'([^']+)'")) {
+            $target = Get-NormalPath (Join-Path $currentDir $m.Groups[1].Value)
+            if ($reachable.Add($target)) { $queue.Enqueue($target) }
+        }
+    }
+}
+
+# --- path 3: hook -- any .bicep token named in an azure.yaml hook command -----
+$hookTokens = @()
+if (Test-Path $AzureYamlPath) {
+    $yaml = Get-Content -Path $AzureYamlPath -Raw
+    $hookTokens = [regex]::Matches($yaml, '[A-Za-z0-9_./-]+\.bicep') |
+        ForEach-Object { $_.Value }
+}
+
+function Test-HookDeployed([string] $NormalPath) {
+    if (-not $hookTokens) { return $false }
+    $leaf = Split-Path -Leaf $NormalPath
+    foreach ($tok in $hookTokens) {
+        $normTok = $tok.Replace('\', '/')
+        if ($NormalPath.EndsWith($normTok, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+        if ((Split-Path -Leaf $normTok) -ieq $leaf) { return $true }
+    }
+    return $false
+}
+
+# --- path 2: service-deploy -- container app + a container-image parameter ----
+function Test-ServiceDeploy([string] $Body) {
+    if ($Body -notmatch 'Microsoft\.App/containerApps') { return $false }
+    return $Body -match '(?im)^\s*param\s+[A-Za-z0-9_]*containerimage[A-Za-z0-9_]*\s+string'
+}
+
+function Get-DeployPath([string] $FullPath, [string] $Body) {
+    $normal = Get-NormalPath $FullPath
+    if ($reachable.Contains($normal)) { return 'provision' }
+    if (Test-ServiceDeploy $Body) { return 'service-deploy' }
+    if (Test-HookDeployed $normal) { return 'hook' }
+    return 'none'
 }
 
 $failures = [System.Collections.Generic.List[string]]::new()
@@ -44,6 +136,13 @@ $sawSql = $false
 foreach ($file in $bicep) {
     $text = Get-Content -Path $file.FullName -Raw
     $relative = Resolve-Path -Relative $file.FullName
+
+    # Dead infrastructure: on no deploy path at all.
+    $deployPath = Get-DeployPath $file.FullName $text
+    if ($deployPath -eq 'none') {
+        $failures.Add("$relative : on no deploy path (not reachable from main.bicep, not an azd service-deploy module, not referenced by an azure.yaml hook) -- wire it in or delete it")
+        continue
+    }
 
     # Presence + scale-to-zero.
     if ($text -match 'Microsoft\.App/containerApps') { $sawContainerApp = $true }
@@ -67,8 +166,17 @@ foreach ($file in $bicep) {
     }
 
     # Dedicated ACA workload profiles bill per-node regardless of traffic.
-    if ($text -match "workloadProfileType\s*:\s*'(?!Consumption)") {
-        $failures.Add("$relative : uses a non-Consumption workload profile")
+    #
+    # Extracts each value and compares it to exactly 'Consumption',
+    # case-insensitively -- matching the sh twin's logic exactly (B-3, round 3).
+    # The previous unanchored lookahead accepted 'ConsumptionPlus', and its
+    # message named no profile, so a failure gave the operator nothing to search
+    # for. The sh twin was case-sensitive and this one was not, so the two
+    # disagreed in both directions on the same tree.
+    foreach ($m in [regex]::Matches($text, "(?i)workloadProfileType\s*:\s*'([^']*)'")) {
+        if ($m.Groups[1].Value -ine 'Consumption') {
+            $failures.Add("$relative : declares a non-Consumption workload profile ('$($m.Groups[1].Value)')")
+        }
     }
 
     # The SQL database must actually be on the free serverless offer.
@@ -86,6 +194,12 @@ foreach ($file in $bicep) {
     if ($text -match 'Microsoft\.ContainerRegistry/registries' -and $text -match "name\s*:\s*'(Standard|Premium)'") {
         $failures.Add("$relative : container registry is not on the Basic SKU")
     }
+
+    # Static Web Apps must stay on Free: the constitution names that tier for the
+    # React app, and any other tier introduces a standing monthly charge.
+    if ($text -match 'Microsoft\.Web/staticSites' -and $text -notmatch "name\s*:\s*'Free'") {
+        $failures.Add("$relative : Static Web App is not on the Free SKU")
+    }
 }
 
 # Fail-closed: rules verified against resources that are not present prove nothing.
@@ -101,12 +215,13 @@ if (-not $sawSql) {
 
 if ($failures.Count -gt 0) {
     Write-Host ''
-    Write-Host 'Idle-cost check FAILED (Principle 12):' -ForegroundColor Red
+    Write-Host 'Idle-cost check FAILED (Deployment & Cost Constraints):' -ForegroundColor Red
     $failures | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
     Write-Host ''
     Write-Host 'Fix the AppHost configuration and re-synth before deploying.'
     exit 1
 }
 
-Write-Host 'Idle-cost check passed: container app scales to zero, SQL auto-pauses on the free limit, no always-on resources.' -ForegroundColor Green
+Write-Host 'Idle-cost check passed: container app scales to zero, SQL auto-pauses on the free limit,' -ForegroundColor Green
+Write-Host 'no always-on resources, and every template sits on a real deploy path.' -ForegroundColor Green
 exit 0

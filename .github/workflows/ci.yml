@@ -52,15 +52,24 @@ jobs:
       - run: npm run build
 
   cost-guard:
-    name: Idle-cost guard (Principle 12)
+    name: Idle-cost guard (Deployment & Cost Constraints)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Enforce no idle-billable resources
         # Runs against the COMMITTED infra/ (what actually deploys) — deterministic
         # and decoupled from the synth step, so a synth hiccup can't turn the cost
-        # gate red for unrelated reasons (P1-5).
+        # gate red for unrelated reasons (P1-5). azure.yaml and infra-web/ come
+        # from the script's own defaults, so hook-deployed and hand-written
+        # templates are classified and checked too (feature 002, US4/T016).
         run: ./scripts/check-idle-cost.sh ./infra
+      - name: Verify the guard itself still detects what it claims to
+        # A safety mechanism nobody tests is a safety mechanism nobody has. This
+        # asserts the guard fails on dead infrastructure, refuses to let an
+        # undeployed template satisfy a posture check, rejects a paid Static Web
+        # App, stays fail-closed on empty input — and that both twins agree, so a
+        # developer's green on Windows is CI's green here (FR-012).
+        run: sh tests/cost-guard/run-tests.sh
 
   infra-drift:
     name: Infra drift check (advisory)
@@ -70,6 +79,12 @@ jobs:
     # only flags when it should be regenerated. azd is pinned to the version that
     # generated committed infra so the diff is meaningful (P2-6); Aspire is pinned
     # via the AppHost SDK (13.4.6).
+    #
+    # Pin raised 1.19.0 -> 1.31.2 on 2026-08-22: committed infra/ is now generated
+    # by 1.31.2, so leaving the pin behind would make this job diff two different
+    # generators and warn on every run. (1.19.0 -> 1.31.2 produced a byte-identical
+    # tree, so the raise itself changed nothing; the probes and Application
+    # Insights in infra/ came from AppHost edits, not from the version bump.)
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -78,7 +93,7 @@ jobs:
           dotnet-version: '10.0.x'
       - uses: Azure/setup-azd@v2
         with:
-          version: 1.19.0
+          version: 1.31.2
       - name: Regenerate infra and diff against what's committed
         run: |
           azd env new ci --no-prompt || true

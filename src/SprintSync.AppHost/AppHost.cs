@@ -177,9 +177,23 @@ api.PublishAsAzureContainerApp((_, app) =>
     // establish. This PR introduces probes where ARM previously applied none, so
     // that failure would have been ours to create.
     //
-    // While a startup probe is failing within its threshold, the platform does
-    // not run liveness or readiness. Budget: 10 + 30 x 10 = 310s, comfortably
-    // past the 210s command timeout plus a resume.
+    // While a startup probe is failing within its threshold, ACA does not run
+    // liveness or readiness — documented behaviour, and independently measured on
+    // a live container app (liveness resumed 26ms after the startup probe first
+    // succeeded; through a startup-failure restart loop, liveness and readiness
+    // executed zero times).
+    //
+    // BUDGET: 10 + (30-1) x 10 = 300s to the 30th consecutive failure. Note this
+    // is NOT derived from any single number in StartupMigrator: the pre-listen
+    // window is a SUM — container start + Azure SQL serverless resume + up to 180s
+    // waiting on sp_getapplock + 60s-per-command DDL + seeding — and the whole
+    // block runs inside an EF execution strategy, so one transient fault replays
+    // the lock wait from zero. 300s dominates the largest single term, not the
+    // sum. It is a large improvement on the 65s it replaced, not a proof.
+    //
+    // failureThreshold is capped at 30 by the ARM validator, so this window can
+    // only be widened through periodSeconds. Revisit against a real cold start
+    // under cross-revision contention (T041).
     container.Probes.Add(new ContainerAppProbe
     {
         ProbeType = ContainerAppProbeType.Startup,

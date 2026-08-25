@@ -181,8 +181,17 @@ for file in $BICEP_FILES; do
   # on the exact tree it guards while still printing a pass. The PowerShell twin
   # used a per-occurrence negative lookahead and caught what this missed, so the
   # twins silently disagreed and no fixture covered the shape.
-  bad_profiles=$(grep -oE "workloadProfileType[[:space:]]*:[[:space:]]*'[^']*'" "$file" 2>/dev/null |
-                   grep -vF "'Consumption'" || true)
+  #
+  # Case-INSENSITIVE on both the property name and the value, and comparing the
+  # extracted value to exactly "Consumption" rather than substring-matching it.
+  # All three matter (B-3, round 3): bicep property binding is case-insensitive,
+  # so ARM accepts `workloadprofiletype: 'D4'` and deploys a real billable node,
+  # which the case-sensitive form missed entirely — a permissive hole on the twin
+  # that CI and the preprovision hook actually run. A substring test would also
+  # wave through a value like 'ConsumptionPlus'.
+  bad_profiles=$(grep -oiE "workloadProfileType[[:space:]]*:[[:space:]]*'[^']*'" "$file" 2>/dev/null |
+                   sed -E "s/.*'([^']*)'.*/\1/" |
+                   grep -viE '^Consumption$' || true)
   if [ -n "$bad_profiles" ]; then
     fail "$file : declares a non-Consumption workload profile ($(printf '%s' "$bad_profiles" | tr '\n' ' '))"
   fi

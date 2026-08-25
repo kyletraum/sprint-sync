@@ -166,8 +166,17 @@ foreach ($file in $bicep) {
     }
 
     # Dedicated ACA workload profiles bill per-node regardless of traffic.
-    if ($text -match "workloadProfileType\s*:\s*'(?!Consumption)") {
-        $failures.Add("$relative : uses a non-Consumption workload profile")
+    #
+    # Extracts each value and compares it to exactly 'Consumption',
+    # case-insensitively -- matching the sh twin's logic exactly (B-3, round 3).
+    # The previous unanchored lookahead accepted 'ConsumptionPlus', and its
+    # message named no profile, so a failure gave the operator nothing to search
+    # for. The sh twin was case-sensitive and this one was not, so the two
+    # disagreed in both directions on the same tree.
+    foreach ($m in [regex]::Matches($text, "(?i)workloadProfileType\s*:\s*'([^']*)'")) {
+        if ($m.Groups[1].Value -ine 'Consumption') {
+            $failures.Add("$relative : declares a non-Consumption workload profile ('$($m.Groups[1].Value)')")
+        }
     }
 
     # The SQL database must actually be on the free serverless offer.

@@ -1,5 +1,17 @@
 # Committee review — PR #5 (feature 002), round 1–2
 
+> [!IMPORTANT]
+> **Status has moved on — see [2026-08-25-fix-log.md](./2026-08-25-fix-log.md).**
+>
+> As of `bc144df`, **6 of the 20 defects below are closed**: all four must-fixes
+> (M1–M4, plus round-3 follow-ups B-1 and B-3), S6 (with a mutation-checked
+> test), and N6's unconditional half. **The "not safe to merge" verdict at the
+> bottom of this file was conditioned on the four must-fixes, and that condition
+> is now met.**
+>
+> S1–S5 and N1–N5, N7–N10 remain open. This document is preserved as written —
+> it is the record of what was found, not of what is still true.
+
 **Date**: 2026-08-22
 **Panel**: SWE / Test Automation / QA / DevOps / Security + broker
 **Method**: 3 rounds. Round 1 find (5 seats, independent) → round 2 adversarial
